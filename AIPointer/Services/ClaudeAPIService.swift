@@ -14,7 +14,10 @@ class ClaudeAPIService: NSObject, URLSessionDataDelegate {
     private var messages: [[String: String]] = []
 
     func configure(baseURL: String, authToken: String, agentId: String) {
-        self.baseURL = baseURL
+        // Strip trailing slashes to avoid double-slash in URL path
+        var url = baseURL
+        while url.hasSuffix("/") { url.removeLast() }
+        self.baseURL = url
         self.authToken = authToken
         self.agentId = agentId
     }
