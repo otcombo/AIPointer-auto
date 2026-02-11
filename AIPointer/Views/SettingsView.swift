@@ -4,8 +4,9 @@ import AppKit
 struct SettingsView: View {
     @AppStorage("suppressFnKey") private var suppressFnKey = true
     @AppStorage("longPressDuration") private var longPressDuration = 0.0
-    @AppStorage("backendURL") private var backendURL = "https://claude.otcombo.com"
+    @AppStorage("backendURL") private var backendURL = ""
     @AppStorage("authToken") private var authToken = ""
+    @AppStorage("agentId") private var agentId = "main"
 
     var body: some View {
         Form {
@@ -41,12 +42,18 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Backend") {
-                TextField("Server URL", text: $backendURL)
+            Section("OpenClaw") {
+                TextField("Server URL", text: $backendURL, prompt: Text("https://your-vps:18789"))
                     .textFieldStyle(.roundedBorder)
 
                 SecureField("Auth Token", text: $authToken)
                     .textFieldStyle(.roundedBorder)
+
+                TextField("Agent ID", text: $agentId, prompt: Text("main"))
+                    .textFieldStyle(.roundedBorder)
+                Text("The OpenClaw agent to chat with.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
         }
         .formStyle(.grouped)

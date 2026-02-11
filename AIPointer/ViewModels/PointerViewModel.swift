@@ -12,8 +12,8 @@ class PointerViewModel: ObservableObject {
     /// Single callback — AppDelegate reacts to every state change
     var onStateChanged: ((PointerState) -> Void)?
 
-    func configureAPI(baseURL: String, authToken: String) {
-        apiService.configure(baseURL: baseURL, authToken: authToken)
+    func configureAPI(baseURL: String, authToken: String, agentId: String) {
+        apiService.configure(baseURL: baseURL, authToken: authToken, agentId: agentId)
     }
 
     func onFnPress() {

@@ -176,9 +176,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         eventTapManager.suppressFnKey = defaults.object(forKey: "suppressFnKey") as? Bool ?? true
         eventTapManager.longPressDuration = defaults.double(forKey: "longPressDuration") // 0 = instant
 
-        let url = defaults.string(forKey: "backendURL") ?? "https://claude.otcombo.com"
+        let url = defaults.string(forKey: "backendURL") ?? ""
         let token = defaults.string(forKey: "authToken") ?? ""
-        viewModel.configureAPI(baseURL: url, authToken: token)
+        let agentId = defaults.string(forKey: "agentId") ?? "main"
+        viewModel.configureAPI(baseURL: url, authToken: token, agentId: agentId)
     }
 
     @objc private func settingsChanged() {

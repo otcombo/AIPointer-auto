@@ -3,24 +3,33 @@ import Foundation
 enum SSEEvent {
     case status(String)
     case delta(String)
-    case done(String) // conversation_id
+    case done(String)
     case error(String)
 }
 
 class ClaudeAPIService: NSObject, URLSessionDataDelegate {
-    // TODO: Move to settings/keychain
-    private var baseURL = "https://claude.otcombo.com"
+    private var baseURL = ""
     private var authToken = ""
+    private var agentId = "main"
+    private var messages: [[String: String]] = []
 
-    func configure(baseURL: String, authToken: String) {
+    func configure(baseURL: String, authToken: String, agentId: String) {
         self.baseURL = baseURL
         self.authToken = authToken
+        self.agentId = agentId
+    }
+
+    func clearHistory() {
+        messages = []
     }
 
     func chat(message: String, conversationId: String?) -> AsyncThrowingStream<SSEEvent, Error> {
-        AsyncThrowingStream { continuation in
+        messages.append(["role": "user", "content": message])
+
+        return AsyncThrowingStream { continuation in
             Task {
-                guard let url = URL(string: "\(baseURL)/api/chat") else {
+                guard let url = URL(string: "\(baseURL)/v1/chat/completions") else {
+                    self.messages.removeLast()
                     continuation.finish(throwing: URLError(.badURL))
                     return
                 }
@@ -30,10 +39,12 @@ class ClaudeAPIService: NSObject, URLSessionDataDelegate {
                 request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-                var body: [String: Any] = ["message": message]
-                if let conversationId {
-                    body["conversation_id"] = conversationId
-                }
+                let body: [String: Any] = [
+                    "model": "openclaw:\(agentId)",
+                    "messages": messages,
+                    "stream": true,
+                    "user": "aipointer"
+                ]
                 request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
                 let session = URLSession(configuration: .default)
@@ -42,57 +53,54 @@ class ClaudeAPIService: NSObject, URLSessionDataDelegate {
                     let (bytes, response) = try await session.bytes(for: request)
 
                     guard let httpResponse = response as? HTTPURLResponse else {
+                        self.messages.removeLast()
                         continuation.finish(throwing: URLError(.badServerResponse))
                         return
                     }
 
                     if httpResponse.statusCode != 200 {
+                        self.messages.removeLast()
                         continuation.yield(.error("HTTP \(httpResponse.statusCode)"))
                         continuation.finish()
                         return
                     }
 
-                    var currentEvent = ""
-                    var currentData = ""
+                    continuation.yield(.status("thinking"))
+
+                    var fullResponse = ""
+                    var firstChunk = true
 
                     for try await line in bytes.lines {
-                        if line.hasPrefix("event: ") {
-                            currentEvent = String(line.dropFirst(7))
-                        } else if line.hasPrefix("data: ") {
-                            currentData = String(line.dropFirst(6))
+                        guard line.hasPrefix("data: ") else { continue }
+                        let payload = String(line.dropFirst(6))
 
-                            // Process event
-                            if let data = currentData.data(using: .utf8),
-                               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                                switch currentEvent {
-                                case "status":
-                                    if let status = json["status"] as? String {
-                                        continuation.yield(.status(status))
-                                    }
-                                case "delta":
-                                    if let text = json["text"] as? String {
-                                        continuation.yield(.delta(text))
-                                    }
-                                case "done":
-                                    if let convId = json["conversation_id"] as? String {
-                                        continuation.yield(.done(convId))
-                                    }
-                                case "error":
-                                    if let error = json["error"] as? String {
-                                        continuation.yield(.error(error))
-                                    }
-                                default:
-                                    break
-                                }
-                            }
-
-                            currentEvent = ""
-                            currentData = ""
+                        if payload == "[DONE]" {
+                            break
                         }
+
+                        guard let data = payload.data(using: .utf8),
+                              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                              let choices = json["choices"] as? [[String: Any]],
+                              let choice = choices.first,
+                              let delta = choice["delta"] as? [String: Any],
+                              let content = delta["content"] as? String else {
+                            continue
+                        }
+
+                        if firstChunk {
+                            continuation.yield(.status("responding"))
+                            firstChunk = false
+                        }
+
+                        fullResponse += content
+                        continuation.yield(.delta(content))
                     }
 
+                    self.messages.append(["role": "assistant", "content": fullResponse])
+                    continuation.yield(.done("openclaw"))
                     continuation.finish()
                 } catch {
+                    self.messages.removeLast()
                     continuation.finish(throwing: error)
                 }
             }
