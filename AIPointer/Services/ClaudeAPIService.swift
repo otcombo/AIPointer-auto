@@ -19,7 +19,10 @@ class ClaudeAPIService: NSObject, URLSessionDataDelegate {
         while url.hasSuffix("/") { url.removeLast() }
         self.baseURL = url
         self.authToken = authToken
-        self.agentId = agentId
+        // Strip "openclaw:" prefix if user included it in the agent ID
+        var agent = agentId
+        if agent.hasPrefix("openclaw:") { agent = String(agent.dropFirst(9)) }
+        self.agentId = agent
     }
 
     func clearHistory() {
@@ -41,6 +44,7 @@ class ClaudeAPIService: NSObject, URLSessionDataDelegate {
                 request.httpMethod = "POST"
                 request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.setValue("agent:\(agentId):\(agentId)", forHTTPHeaderField: "x-openclaw-session-key")
 
                 let body: [String: Any] = [
                     "model": "openclaw:\(agentId)",
