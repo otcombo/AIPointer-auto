@@ -4,10 +4,10 @@ struct PointerRootView: View {
     @ObservedObject var viewModel: PointerViewModel
 
     private var inputBarWidth: CGFloat {
-        if viewModel.inputText.isEmpty { return 60 }
-        let font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        if viewModel.inputText.isEmpty { return 70 }
+        let font = NSFont.systemFont(ofSize: 15, weight: .medium)
         let textWidth = (viewModel.inputText as NSString).size(withAttributes: [.font: font]).width
-        return min(max(textWidth + 40, 60), 440)
+        return min(max(textWidth + 44, 70), 440)
     }
 
     private var shapeWidth: CGFloat {
@@ -21,7 +21,7 @@ struct PointerRootView: View {
     private var shapeHeight: CGFloat {
         switch viewModel.state {
         case .idle: return 16
-        case .input: return 30
+        case .input: return 38
         case .thinking: return 80
         case .responding, .response: return 280
         }

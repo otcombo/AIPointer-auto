@@ -154,7 +154,7 @@ class OverlayPanel: NSPanel {
         case .input:
             ignoresMouseEvents = false
             allowsKeyWindow = true
-            snapToMouse(width: 440, height: 34)
+            snapToMouse(width: 440, height: 42)
 
         case .thinking:
             ignoresMouseEvents = false

@@ -6,7 +6,7 @@ struct OrangeIndicator: View {
     var body: some View {
         RoundedRectangle(cornerRadius: 1)
             .fill(Color(red: 0xEC / 255, green: 0x68 / 255, blue: 0x2C / 255)) // #EC682C
-            .frame(width: 2, height: 14)
+            .frame(width: 2, height: 17)
             .opacity(visible ? 1 : 0)
             .onAppear {
                 withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
@@ -22,11 +22,11 @@ struct InputBar: View {
     var onCancel: () -> Void
 
     private var barWidth: CGFloat {
-        if text.isEmpty { return 60 }
-        let font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        if text.isEmpty { return 70 }
+        let font = NSFont.systemFont(ofSize: 15, weight: .medium)
         let textWidth = (text as NSString).size(withAttributes: [.font: font]).width
-        // text width + horizontal padding (10*2) + some breathing room (20)
-        return min(max(textWidth + 40, 60), 440)
+        // text width + horizontal padding (12*2) + some breathing room (20)
+        return min(max(textWidth + 44, 70), 440)
     }
 
     var body: some View {
@@ -35,8 +35,8 @@ struct InputBar: View {
             onSubmit: onSubmit,
             onCancel: onCancel
         )
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
     }
 }
 
