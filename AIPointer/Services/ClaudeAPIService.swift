@@ -12,6 +12,7 @@ class ClaudeAPIService: NSObject, URLSessionDataDelegate {
     private var authToken = ""
     private var agentId = "main"
     private var messages: [[String: String]] = []
+    private var activeSession: URLSession?
 
     func configure(baseURL: String, authToken: String, agentId: String) {
         // Strip trailing slashes to avoid double-slash in URL path
@@ -23,6 +24,11 @@ class ClaudeAPIService: NSObject, URLSessionDataDelegate {
         var agent = agentId
         if agent.hasPrefix("openclaw:") { agent = String(agent.dropFirst(9)) }
         self.agentId = agent
+    }
+
+    func cancel() {
+        activeSession?.invalidateAndCancel()
+        activeSession = nil
     }
 
     func clearHistory() {
@@ -54,7 +60,9 @@ class ClaudeAPIService: NSObject, URLSessionDataDelegate {
                 ]
                 request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
+                self.activeSession?.invalidateAndCancel()
                 let session = URLSession(configuration: .default)
+                self.activeSession = session
 
                 do {
                     let (bytes, response) = try await session.bytes(for: request)

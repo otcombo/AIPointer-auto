@@ -38,6 +38,7 @@ class PointerViewModel: ObservableObject {
             do {
                 let stream = apiService.chat(message: text, conversationId: conversationId)
                 for try await event in stream {
+                    guard !Task.isCancelled else { break }
                     switch event {
                     case .delta(let chunk):
                         if case .responding(let existing) = state {
@@ -64,13 +65,16 @@ class PointerViewModel: ObservableObject {
                     onStateChanged?(state)
                 }
             } catch {
-                state = .response(text: "Error: \(error.localizedDescription)")
-                onStateChanged?(state)
+                if !Task.isCancelled {
+                    state = .response(text: "Error: \(error.localizedDescription)")
+                    onStateChanged?(state)
+                }
             }
         }
     }
 
     func dismiss() {
+        apiService.cancel()
         currentTask?.cancel()
         currentTask = nil
         state = .idle

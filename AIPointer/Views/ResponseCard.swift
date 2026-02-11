@@ -17,7 +17,7 @@ struct ChatPanel: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         Text(responseText)
-                            .font(.custom("SF Compact Text", size: 12).weight(.medium))
+                            .font(.custom("SF Compact Text", size: 15).weight(.medium))
                             .foregroundColor(.white)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -59,7 +59,7 @@ struct ChatPanel: View {
                 placeholder: "Ask anything...",
                 onSubmit: onSubmit,
                 onCancel: onDismiss,
-                isDisabled: isThinking || isStreaming,
+                isDisabled: false,
                 autoFocus: !(isThinking || isStreaming)
             )
             .padding(.horizontal, 10)
