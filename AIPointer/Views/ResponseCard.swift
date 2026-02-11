@@ -65,15 +65,6 @@ struct ChatPanel: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
         }
-        .frame(minWidth: 200, maxWidth: 400)
-        .background(
-            PointerShape(radius: 12)
-                .fill(Color.black.opacity(0.95))
-        )
-        .overlay(
-            PointerShape(radius: 12)
-                .stroke(Color.white, lineWidth: 2)
-        )
-        .shadow(color: .black.opacity(0.25), radius: 3.75, x: 0, y: 3.75)
+        .frame(minWidth: 200, maxWidth: 440)
     }
 }

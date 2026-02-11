@@ -21,6 +21,14 @@ struct InputBar: View {
     var onSubmit: () -> Void
     var onCancel: () -> Void
 
+    private var barWidth: CGFloat {
+        if text.isEmpty { return 60 }
+        let font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        let textWidth = (text as NSString).size(withAttributes: [.font: font]).width
+        // text width + horizontal padding (10*2) + some breathing room (20)
+        return min(max(textWidth + 40, 60), 440)
+    }
+
     var body: some View {
         AppKitTextField(
             text: $text,
@@ -29,16 +37,6 @@ struct InputBar: View {
         )
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .frame(minWidth: 60, minHeight: 30, maxHeight: 30)
-        .background(
-            PointerShape(radius: 12)
-                .fill(Color.black.opacity(0.95))
-        )
-        .overlay(
-            PointerShape(radius: 12)
-                .stroke(Color.white, lineWidth: 2)
-        )
-        .shadow(color: .black.opacity(0.25), radius: 3.75, x: 0, y: 3.75)
     }
 }
 

@@ -125,13 +125,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             case .input, .thinking, .responding, .response:
                 self.overlayPanel.ignoresMouseEvents = false
                 self.overlayPanel.allowsKeyWindow = true
+                // Keep cursor hidden initially; show on first mouse move (see onMouseMoved)
 
                 // Delay to next run loop so SwiftUI has laid out the TextField
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                     NSApp.activate(ignoringOtherApps: true)
                     self.overlayPanel.makeKeyAndOrderFront(nil)
-                    if let contentView = self.overlayPanel.contentView {
-                        self.overlayPanel.makeFirstResponder(contentView)
+                    // contentView is the container; the hosting view is its first subview
+                    if let hostingView = self.overlayPanel.contentView?.subviews.first {
+                        self.overlayPanel.makeFirstResponder(hostingView)
                     }
                 }
 
@@ -143,8 +145,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         eventTapManager.onMouseMoved = { [weak self] point in
             guard let self else { return }
+            self.overlayPanel.lastMousePosition = point
             if self.isFollowingMouse {
                 self.overlayPanel.moveTo(point)
+            } else {
+                // Panel is fixed (input/thinking/response) — show cursor on mouse move
+                self.cursorHider.restore()
             }
         }
 
