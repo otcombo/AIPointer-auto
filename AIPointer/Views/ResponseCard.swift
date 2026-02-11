@@ -1,0 +1,79 @@
+import SwiftUI
+
+/// Combined panel showing response text + input field.
+/// Used for thinking, responding, and response states.
+struct ChatPanel: View {
+    let responseText: String
+    let isThinking: Bool
+    let isStreaming: Bool
+    @Binding var inputText: String
+    var onSubmit: () -> Void
+    var onDismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Response area
+            if !responseText.isEmpty {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        Text(responseText)
+                            .font(.custom("SF Compact Text", size: 12).weight(.medium))
+                            .foregroundColor(.white)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .id("bottom")
+                    }
+                    .onChange(of: responseText) { _, _ in
+                        if isStreaming {
+                            proxy.scrollTo("bottom", anchor: .bottom)
+                        }
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.top, 8)
+                .frame(maxHeight: 200)
+
+                Rectangle()
+                    .fill(Color.white.opacity(0.1))
+                    .frame(height: 1)
+                    .padding(.horizontal, 10)
+            }
+
+            // Thinking indicator
+            if isThinking {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .colorScheme(.dark)
+                    Text("Thinking...")
+                        .font(.custom("SF Compact Text", size: 11))
+                        .foregroundColor(.white.opacity(0.5))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+            }
+
+            // Input field (always present)
+            AppKitTextField(
+                text: $inputText,
+                placeholder: "Ask anything...",
+                onSubmit: onSubmit,
+                onCancel: onDismiss,
+                isDisabled: isThinking || isStreaming,
+                autoFocus: !(isThinking || isStreaming)
+            )
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+        }
+        .frame(minWidth: 200, maxWidth: 400)
+        .background(
+            PointerShape(radius: 12)
+                .fill(Color.black.opacity(0.95))
+        )
+        .overlay(
+            PointerShape(radius: 12)
+                .stroke(Color.white, lineWidth: 2)
+        )
+        .shadow(color: .black.opacity(0.25), radius: 3.75, x: 0, y: 3.75)
+    }
+}
