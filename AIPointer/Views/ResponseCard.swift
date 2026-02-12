@@ -9,6 +9,9 @@ struct ChatPanel: View {
     @Binding var inputText: String
     var onSubmit: () -> Void
     var onDismiss: () -> Void
+    var attachedImages: [SelectedRegion] = []
+    var onRemoveAttachment: ((Int) -> Void)? = nil
+    var onScreenshot: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -53,15 +56,39 @@ struct ChatPanel: View {
                 .padding(.vertical, 6)
             }
 
-            // Input field (always present)
-            AppKitTextField(
-                text: $inputText,
-                placeholder: "Ask anything...",
-                onSubmit: onSubmit,
-                onCancel: onDismiss,
-                isDisabled: isThinking || isStreaming,
-                autoFocus: !(isThinking || isStreaming)
-            )
+            // Attachment preview strip
+            if !attachedImages.isEmpty {
+                AttachmentStripView(
+                    images: attachedImages,
+                    onRemove: { index in onRemoveAttachment?(index) }
+                )
+
+                Rectangle()
+                    .fill(Color.white.opacity(0.1))
+                    .frame(height: 1)
+                    .padding(.horizontal, 10)
+            }
+
+            // Input field with camera button
+            HStack(spacing: 4) {
+                AppKitTextField(
+                    text: $inputText,
+                    placeholder: "Ask anything...",
+                    onSubmit: onSubmit,
+                    onCancel: onDismiss,
+                    isDisabled: isThinking || isStreaming,
+                    autoFocus: !(isThinking || isStreaming)
+                )
+
+                if let onScreenshot = onScreenshot, !(isThinking || isStreaming) {
+                    Button(action: onScreenshot) {
+                        Image(systemName: "camera")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(0.5))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
         }

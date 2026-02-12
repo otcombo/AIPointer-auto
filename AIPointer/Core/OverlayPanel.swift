@@ -144,7 +144,7 @@ class OverlayPanel: NSPanel {
         }
     }
 
-    func updateForState(_ state: PointerState) {
+    func updateForState(_ state: PointerState, inputHeight: CGFloat = 34) {
         switch state {
         case .idle:
             ignoresMouseEvents = true
@@ -154,7 +154,7 @@ class OverlayPanel: NSPanel {
         case .input:
             ignoresMouseEvents = false
             allowsKeyWindow = true
-            snapToMouse(width: 440, height: 34)
+            snapToMouse(width: 440, height: inputHeight)
 
         case .thinking:
             ignoresMouseEvents = false

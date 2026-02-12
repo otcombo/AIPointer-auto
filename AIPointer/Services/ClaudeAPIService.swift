@@ -1,4 +1,5 @@
 import Foundation
+import Cocoa
 
 enum SSEEvent {
     case status(String)
@@ -11,7 +12,7 @@ class ClaudeAPIService: NSObject, URLSessionDataDelegate {
     private var baseURL = ""
     private var authToken = ""
     private var agentId = "main"
-    private var messages: [[String: String]] = []
+    private var messages: [[String: Any]] = []
 
     func configure(baseURL: String, authToken: String, agentId: String) {
         self.baseURL = baseURL
@@ -23,8 +24,58 @@ class ClaudeAPIService: NSObject, URLSessionDataDelegate {
         messages = []
     }
 
-    func chat(message: String, conversationId: String?) -> AsyncThrowingStream<SSEEvent, Error> {
-        messages.append(["role": "user", "content": message])
+    /// Convert NSImage to base64-encoded PNG string.
+    static func toBase64PNG(_ image: NSImage) -> String? {
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let png = bitmap.representation(using: .png, properties: [:]) else {
+            return nil
+        }
+
+        // If larger than 1MB, scale down and re-encode
+        if png.count > 1_048_576 {
+            let scale = sqrt(1_048_576.0 / Double(png.count))
+            let newWidth = Int(Double(bitmap.pixelsWide) * scale)
+            let newHeight = Int(Double(bitmap.pixelsHigh) * scale)
+
+            let resized = NSImage(size: NSSize(width: newWidth, height: newHeight))
+            resized.lockFocus()
+            image.draw(in: NSRect(x: 0, y: 0, width: newWidth, height: newHeight),
+                       from: .zero, operation: .copy, fraction: 1.0)
+            resized.unlockFocus()
+
+            if let resizedTiff = resized.tiffRepresentation,
+               let resizedBitmap = NSBitmapImageRep(data: resizedTiff),
+               let resizedPng = resizedBitmap.representation(using: .png, properties: [:]) {
+                return resizedPng.base64EncodedString()
+            }
+        }
+
+        return png.base64EncodedString()
+    }
+
+    func chat(message: String, conversationId: String?, images: [(NSImage, String)] = []) -> AsyncThrowingStream<SSEEvent, Error> {
+        // Build message content
+        let userMessage: [String: Any]
+        if images.isEmpty {
+            userMessage = ["role": "user", "content": message]
+        } else {
+            var content: [[String: Any]] = []
+            // Text part first
+            content.append(["type": "text", "text": message])
+            // Then each image with its label
+            for (image, label) in images {
+                content.append(["type": "text", "text": label])
+                if let base64 = Self.toBase64PNG(image) {
+                    content.append([
+                        "type": "image_url",
+                        "image_url": ["url": "data:image/png;base64,\(base64)"]
+                    ])
+                }
+            }
+            userMessage = ["role": "user", "content": content]
+        }
+        messages.append(userMessage)
 
         return AsyncThrowingStream { continuation in
             Task {
@@ -96,6 +147,7 @@ class ClaudeAPIService: NSObject, URLSessionDataDelegate {
                         continuation.yield(.delta(content))
                     }
 
+                    // Store assistant response as simple string content
                     self.messages.append(["role": "assistant", "content": fullResponse])
                     continuation.yield(.done("openclaw"))
                     continuation.finish()

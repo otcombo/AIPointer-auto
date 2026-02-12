@@ -24,6 +24,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var isEnabled = true
     private var isFollowingMouse = true
 
+    // Screenshot support
+    private var screenshotViewModel: ScreenshotViewModel?
+    private var screenshotWindows: [ScreenshotOverlayWindow] = []
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         swizzleCharacterPalette()
@@ -110,11 +114,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         overlayPanel = OverlayPanel(hostingView: hostingView)
 
+        // Connect screenshot request
+        viewModel.onScreenshotRequested = { [weak self] in
+            self?.startScreenshotMode()
+        }
+
         // React to every state change
         viewModel.onStateChanged = { [weak self] state in
             guard let self else { return }
             self.isFollowingMouse = !state.isFixed
-            self.overlayPanel.updateForState(state)
+            let inputHeight: CGFloat = self.viewModel.attachedImages.isEmpty ? 34 : 80
+            self.overlayPanel.updateForState(state, inputHeight: inputHeight)
 
             switch state {
             case .idle:
@@ -184,6 +194,126 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func settingsChanged() {
         applySettings()
+    }
+
+    // MARK: - Screenshot Mode
+
+    private func startScreenshotMode() {
+        // Check Screen Recording permission
+        guard ScreenRecordingPermission.promptIfNeeded() else { return }
+
+        // Hide the overlay panel and restore system cursor
+        overlayPanel.orderOut(nil)
+        cursorHider.restore()
+
+        // Set crosshair cursor
+        NSCursor.crosshair.push()
+
+        // Create screenshot view model
+        let ssViewModel = ScreenshotViewModel()
+        screenshotViewModel = ssViewModel
+
+        // Create overlay window for each screen
+        screenshotWindows = NSScreen.screens.map { screen in
+            ScreenshotOverlayWindow(screen: screen, viewModel: ssViewModel)
+        }
+
+        // Connect callbacks
+        ssViewModel.onComplete = { [weak self] regions in
+            self?.completeScreenshot(regions: regions)
+        }
+
+        ssViewModel.onCancel = { [weak self] in
+            self?.cancelScreenshot()
+        }
+
+        // Show all overlay windows, make the main screen's window key
+        for (index, window) in screenshotWindows.enumerated() {
+            window.orderFrontRegardless()
+            if index == 0 {
+                window.makeKeyAndOrderFront(nil)
+            }
+        }
+    }
+
+    private func completeScreenshot(regions: [SelectedRegion]) {
+        // Hide all screenshot overlay windows first (to avoid capturing them)
+        for window in screenshotWindows {
+            window.orderOut(nil)
+        }
+
+        // Pop crosshair cursor
+        NSCursor.pop()
+
+        // Brief delay to ensure windows are off-screen before capture
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self else { return }
+
+            // Capture each region
+            var capturedRegions: [SelectedRegion] = []
+            for region in regions {
+                if let cgImage = CGWindowListCreateImage(
+                    region.rect,
+                    .optionOnScreenOnly,
+                    kCGNullWindowID,
+                    [.bestResolution]
+                ) {
+                    let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+                    var captured = region
+                    captured.snapshot = nsImage
+                    capturedRegions.append(captured)
+                }
+            }
+
+            // Clean up
+            self.screenshotWindows = []
+            self.screenshotViewModel = nil
+
+            // Attach screenshots and restore overlay
+            self.viewModel.attachScreenshots(capturedRegions)
+
+            // Re-hide system cursor and show overlay panel
+            self.cursorHider.hide()
+            self.overlayPanel.orderFrontRegardless()
+
+            // Re-activate the panel
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                NSApp.activate(ignoringOtherApps: true)
+                self.overlayPanel.makeKeyAndOrderFront(nil)
+                if let hostingView = self.overlayPanel.contentView?.subviews.first {
+                    self.overlayPanel.makeFirstResponder(hostingView)
+                }
+                // Force state update to resize panel for attachments
+                self.viewModel.onStateChanged?(self.viewModel.state)
+            }
+        }
+    }
+
+    private func cancelScreenshot() {
+        // Hide all screenshot overlay windows
+        for window in screenshotWindows {
+            window.orderOut(nil)
+        }
+
+        // Pop crosshair cursor
+        NSCursor.pop()
+
+        // Clean up
+        screenshotWindows = []
+        screenshotViewModel = nil
+
+        // Re-hide system cursor and show overlay panel
+        cursorHider.hide()
+        overlayPanel.orderFrontRegardless()
+
+        // Re-activate the panel
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            NSApp.activate(ignoringOtherApps: true)
+            self.overlayPanel.makeKeyAndOrderFront(nil)
+            if let hostingView = self.overlayPanel.contentView?.subviews.first {
+                self.overlayPanel.makeFirstResponder(hostingView)
+            }
+        }
     }
 
     // MARK: - Menu Actions

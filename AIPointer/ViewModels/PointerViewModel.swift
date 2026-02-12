@@ -4,6 +4,7 @@ import SwiftUI
 class PointerViewModel: ObservableObject {
     @Published var state: PointerState = .idle
     @Published var inputText = ""
+    @Published var attachedImages: [SelectedRegion] = []
 
     private let apiService = ClaudeAPIService()
     private var conversationId: String?
@@ -11,6 +12,9 @@ class PointerViewModel: ObservableObject {
 
     /// Single callback — AppDelegate reacts to every state change
     var onStateChanged: ((PointerState) -> Void)?
+
+    /// Callback to request entering screenshot mode
+    var onScreenshotRequested: (() -> Void)?
 
     func configureAPI(baseURL: String, authToken: String, agentId: String) {
         apiService.configure(baseURL: baseURL, authToken: authToken, agentId: agentId)
@@ -21,22 +25,52 @@ class PointerViewModel: ObservableObject {
         case .idle:
             state = .input
             inputText = ""
+            attachedImages = []
             onStateChanged?(state)
         default:
             dismiss()
         }
     }
 
+    func requestScreenshot() {
+        onScreenshotRequested?()
+    }
+
+    func attachScreenshots(_ regions: [SelectedRegion]) {
+        attachedImages.append(contentsOf: regions)
+    }
+
+    func removeAttachment(at index: Int) {
+        guard index >= 0 && index < attachedImages.count else { return }
+        attachedImages.remove(at: index)
+    }
+
     func send() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        let hasImages = !attachedImages.isEmpty
+
+        // Need either text or images to send
+        guard !text.isEmpty || hasImages else { return }
+
+        // Build message text: default to asking about screenshots if no text
+        let messageText = text.isEmpty && hasImages ? "请帮我看看这些截图" : text
+
+        // Build images array with labels
+        var images: [(NSImage, String)] = []
+        for (index, region) in attachedImages.enumerated() {
+            if let snapshot = region.snapshot {
+                images.append((snapshot, "[Screenshot \(index + 1)]"))
+            }
+        }
+
         inputText = ""
+        attachedImages = []
         state = .thinking
         onStateChanged?(state)
 
         currentTask = Task {
             do {
-                let stream = apiService.chat(message: text, conversationId: conversationId)
+                let stream = apiService.chat(message: messageText, conversationId: conversationId, images: images)
                 for try await event in stream {
                     switch event {
                     case .delta(let chunk):
@@ -75,6 +109,7 @@ class PointerViewModel: ObservableObject {
         currentTask = nil
         state = .idle
         inputText = ""
+        attachedImages = []
         onStateChanged?(state)
     }
 }

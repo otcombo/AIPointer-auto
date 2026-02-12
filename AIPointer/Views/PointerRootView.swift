@@ -21,7 +21,7 @@ struct PointerRootView: View {
     private var shapeHeight: CGFloat {
         switch viewModel.state {
         case .idle: return 16
-        case .input: return 30
+        case .input: return viewModel.attachedImages.isEmpty ? 30 : 80
         case .thinking: return 80
         case .responding, .response: return 280
         }
@@ -38,11 +38,26 @@ struct PointerRootView: View {
                     case .idle:
                         Color.clear.frame(width: 16, height: 16)
                     case .input:
-                        InputBar(
-                            text: $viewModel.inputText,
-                            onSubmit: { viewModel.send() },
-                            onCancel: { viewModel.dismiss() }
-                        )
+                        VStack(alignment: .leading, spacing: 0) {
+                            // Attachment preview in input mode
+                            if !viewModel.attachedImages.isEmpty {
+                                AttachmentStripView(
+                                    images: viewModel.attachedImages,
+                                    onRemove: { index in viewModel.removeAttachment(at: index) }
+                                )
+                                Rectangle()
+                                    .fill(Color.white.opacity(0.1))
+                                    .frame(height: 1)
+                                    .padding(.horizontal, 10)
+                            }
+                            InputBar(
+                                text: $viewModel.inputText,
+                                onSubmit: { viewModel.send() },
+                                onCancel: { viewModel.dismiss() },
+                                attachmentCount: viewModel.attachedImages.count,
+                                onScreenshot: { viewModel.requestScreenshot() }
+                            )
+                        }
                     case .thinking:
                         ChatPanel(
                             responseText: "",
@@ -68,7 +83,10 @@ struct PointerRootView: View {
                             isStreaming: false,
                             inputText: $viewModel.inputText,
                             onSubmit: { viewModel.send() },
-                            onDismiss: { viewModel.dismiss() }
+                            onDismiss: { viewModel.dismiss() },
+                            attachedImages: viewModel.attachedImages,
+                            onRemoveAttachment: { index in viewModel.removeAttachment(at: index) },
+                            onScreenshot: { viewModel.requestScreenshot() }
                         )
                     }
                 }
