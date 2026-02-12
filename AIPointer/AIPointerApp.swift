@@ -164,9 +164,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        eventTapManager.onFnKeyDown = { [weak self] in
+        eventTapManager.onFnShortPress = { [weak self] in
             DispatchQueue.main.async {
                 self?.viewModel.onFnPress()
+            }
+        }
+
+        eventTapManager.onFnLongPress = { [weak self] in
+            DispatchQueue.main.async {
+                self?.handleFnLongPress()
             }
         }
 
@@ -184,7 +190,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func applySettings() {
         let defaults = UserDefaults.standard
         eventTapManager.suppressFnKey = defaults.object(forKey: "suppressFnKey") as? Bool ?? true
-        eventTapManager.longPressDuration = defaults.double(forKey: "longPressDuration") // 0 = instant
 
         let url = (defaults.string(forKey: "backendURL") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let token = (defaults.string(forKey: "authToken") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -198,6 +203,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func settingsChanged() {
         applySettings()
+    }
+
+    // MARK: - Fn Long Press → Screenshot
+
+    private func handleFnLongPress() {
+        switch viewModel.state {
+        case .idle:
+            // From idle, prepare input state silently and go straight to screenshot
+            viewModel.prepareForScreenshot()
+            startScreenshotMode()
+        case .input:
+            // Already in input mode — trigger screenshot (same as camera button)
+            startScreenshotMode()
+        default:
+            // thinking/responding/response — ignore
+            break
+        }
     }
 
     // MARK: - Screenshot Mode

@@ -3,7 +3,6 @@ import AppKit
 
 struct SettingsView: View {
     @AppStorage("suppressFnKey") private var suppressFnKey = true
-    @AppStorage("longPressDuration") private var longPressDuration = 0.0
     @AppStorage("apiFormat") private var apiFormat = "anthropic"
     @AppStorage("backendURL") private var backendURL = ""
     @AppStorage("authToken") private var authToken = ""
@@ -19,19 +18,6 @@ struct SettingsView: View {
                 Text("When enabled, fn key events are consumed and won't open the system emoji picker.")
                     .font(.caption)
                     .foregroundColor(.secondary)
-
-                HStack {
-                    Text("Long-press duration")
-                    Slider(value: $longPressDuration, in: 0...0.8, step: 0.05)
-                    Text("\(Int(longPressDuration * 1000))ms")
-                        .monospacedDigit()
-                        .frame(width: 45, alignment: .trailing)
-                }
-                Text("Hold fn for this duration to activate. Set to 0 for instant trigger.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                Divider()
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("To fully prevent the emoji picker, go to:")

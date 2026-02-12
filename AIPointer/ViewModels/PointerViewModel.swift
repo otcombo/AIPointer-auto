@@ -32,6 +32,15 @@ class PointerViewModel: ObservableObject {
         }
     }
 
+    /// Prepare input state for direct screenshot entry (from idle).
+    /// Sets state to .input without triggering onStateChanged, so the panel doesn't pop up.
+    func prepareForScreenshot() {
+        state = .input
+        inputText = ""
+        attachedImages = []
+        // Intentionally no onStateChanged — panel stays hidden, goes straight to screenshot
+    }
+
     func requestScreenshot() {
         onScreenshotRequested?()
     }
