@@ -296,15 +296,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.cursorHider.hide()
             self.overlayPanel.orderFrontRegardless()
 
-            // Re-activate the panel
+            // Force state update to resize panel for attachments
+            self.overlayPanel.updateForState(self.viewModel.state)
+            self.overlayPanel.ignoresMouseEvents = false
+            self.overlayPanel.allowsKeyWindow = true
+
+            // Activate and focus the text field directly (don't go through
+            // onStateChanged which would race with a delayed hostingView focus)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 NSApp.activate(ignoringOtherApps: true)
                 self.overlayPanel.makeKeyAndOrderFront(nil)
-                if let hostingView = self.overlayPanel.contentView?.subviews.first {
-                    self.overlayPanel.makeFirstResponder(hostingView)
-                }
-                // Force state update to resize panel for attachments
-                self.viewModel.onStateChanged?(self.viewModel.state)
+                self.focusTextField()
             }
         }
     }
@@ -340,6 +342,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.overlayPanel.makeFirstResponder(hostingView)
             }
         }
+    }
+
+    /// Recursively find and focus the OrangeCaretTextField in the panel.
+    /// Retries with increasing delays to wait for SwiftUI layout.
+    private func focusTextField(attempt: Int = 0) {
+        guard let contentView = overlayPanel.contentView else { return }
+        if let textField = findTextField(in: contentView) {
+            overlayPanel.makeFirstResponder(textField)
+            return
+        }
+        // Retry up to 5 times with increasing delays
+        if attempt < 5 {
+            let delay = 0.05 * Double(attempt + 1)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.focusTextField(attempt: attempt + 1)
+            }
+        }
+    }
+
+    private func findTextField(in view: NSView) -> OrangeCaretTextField? {
+        if let tf = view as? OrangeCaretTextField { return tf }
+        for subview in view.subviews {
+            if let found = findTextField(in: subview) { return found }
+        }
+        return nil
     }
 
     // MARK: - Menu Actions
