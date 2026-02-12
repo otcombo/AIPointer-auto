@@ -186,10 +186,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         eventTapManager.suppressFnKey = defaults.object(forKey: "suppressFnKey") as? Bool ?? true
         eventTapManager.longPressDuration = defaults.double(forKey: "longPressDuration") // 0 = instant
 
-        let url = defaults.string(forKey: "backendURL") ?? ""
-        let token = defaults.string(forKey: "authToken") ?? ""
-        let agentId = defaults.string(forKey: "agentId") ?? "main"
-        viewModel.configureAPI(baseURL: url, authToken: token, agentId: agentId)
+        let url = (defaults.string(forKey: "backendURL") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let token = (defaults.string(forKey: "authToken") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let agentId = (defaults.string(forKey: "agentId") ?? "main").trimmingCharacters(in: .whitespacesAndNewlines)
+        let modelName = (defaults.string(forKey: "modelName") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let formatStr = (defaults.string(forKey: "apiFormat") ?? "anthropic").trimmingCharacters(in: .whitespacesAndNewlines)
+        let apiFormat = APIFormat(rawValue: formatStr) ?? .anthropic
+
+        viewModel.configureAPI(baseURL: url, authToken: token, agentId: agentId, modelName: modelName, apiFormat: apiFormat)
     }
 
     @objc private func settingsChanged() {
@@ -263,6 +267,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     [.bestResolution]
                 ) {
                     let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+                    // Debug: save to desktop and log sizes
+                    print("[Screenshot] region=\(region.rect) cgImage=\(cgImage.width)x\(cgImage.height)")
+                    if let b64 = OpenClawService.toBase64PNG(nsImage) {
+                        print("[Screenshot] base64 length=\(b64.count) chars (\(b64.count * 3 / 4 / 1024)KB)")
+                    }
+                    let debugPath = NSString(string: "~/Desktop/debug_screenshot_\(capturedRegions.count).png").expandingTildeInPath
+                    if let tiff = nsImage.tiffRepresentation,
+                       let bitmap = NSBitmapImageRep(data: tiff),
+                       let png = bitmap.representation(using: .png, properties: [:]) {
+                        try? png.write(to: URL(fileURLWithPath: debugPath))
+                        print("[Screenshot] saved to \(debugPath)")
+                    }
                     var captured = region
                     captured.snapshot = nsImage
                     capturedRegions.append(captured)
@@ -334,7 +350,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let window = NSWindow(contentViewController: hostingController)
             window.title = "AI Pointer Settings"
             window.styleMask = [.titled, .closable]
-            window.setContentSize(NSSize(width: 380, height: 260))
+            window.setContentSize(NSSize(width: 380, height: 420))
             window.center()
             settingsWindow = window
         }

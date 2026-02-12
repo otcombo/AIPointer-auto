@@ -8,16 +8,28 @@ enum SSEEvent {
     case error(String)
 }
 
+enum APIFormat: String {
+    case openai     // OpenClaw /v1/chat/completions (no image support)
+    case anthropic  // Anthropic Messages API /v1/messages (supports images)
+}
+
 class OpenClawService: NSObject, URLSessionDataDelegate {
     private var baseURL = ""
     private var authToken = ""
     private var agentId = "main"
+    private var modelName = "anthropic/claude-sonnet-4-5"
+    private var apiFormat: APIFormat = .anthropic
     private var messages: [[String: Any]] = []
 
-    func configure(baseURL: String, authToken: String, agentId: String) {
+    func configure(baseURL: String, authToken: String, agentId: String, modelName: String = "", apiFormat: APIFormat = .anthropic) {
         self.baseURL = baseURL
         self.authToken = authToken
         self.agentId = agentId
+        self.apiFormat = apiFormat
+        if !modelName.isEmpty {
+            self.modelName = modelName
+        }
+        NSLog("[API] configured: format=%@ url=%@ model=%@", apiFormat.rawValue, baseURL, self.modelName)
     }
 
     func clearHistory() {
@@ -55,15 +67,23 @@ class OpenClawService: NSObject, URLSessionDataDelegate {
     }
 
     func chat(message: String, conversationId: String?, images: [(NSImage, String)] = []) -> AsyncThrowingStream<SSEEvent, Error> {
-        // Build message content
+        switch apiFormat {
+        case .openai:
+            return chatOpenAI(message: message, conversationId: conversationId, images: images)
+        case .anthropic:
+            return chatAnthropic(message: message, conversationId: conversationId, images: images)
+        }
+    }
+
+    // MARK: - OpenAI format (OpenClaw)
+
+    private func chatOpenAI(message: String, conversationId: String?, images: [(NSImage, String)] = []) -> AsyncThrowingStream<SSEEvent, Error> {
         let userMessage: [String: Any]
         if images.isEmpty {
             userMessage = ["role": "user", "content": message]
         } else {
             var content: [[String: Any]] = []
-            // Text part first
             content.append(["type": "text", "text": message])
-            // Then each image with its label
             for (image, label) in images {
                 content.append(["type": "text", "text": label])
                 if let base64 = Self.toBase64PNG(image) {
@@ -102,7 +122,6 @@ class OpenClawService: NSObject, URLSessionDataDelegate {
 
                 do {
                     let (bytes, response) = try await session.bytes(for: request)
-
                     guard let httpResponse = response as? HTTPURLResponse else {
                         self.messages.removeLast()
                         continuation.finish(throwing: URLError(.badServerResponse))
@@ -117,17 +136,13 @@ class OpenClawService: NSObject, URLSessionDataDelegate {
                     }
 
                     continuation.yield(.status("thinking"))
-
                     var fullResponse = ""
                     var firstChunk = true
 
                     for try await line in bytes.lines {
                         guard line.hasPrefix("data: ") else { continue }
                         let payload = String(line.dropFirst(6))
-
-                        if payload == "[DONE]" {
-                            break
-                        }
+                        if payload == "[DONE]" { break }
 
                         guard let data = payload.data(using: .utf8),
                               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -142,14 +157,148 @@ class OpenClawService: NSObject, URLSessionDataDelegate {
                             continuation.yield(.status("responding"))
                             firstChunk = false
                         }
-
                         fullResponse += content
                         continuation.yield(.delta(content))
                     }
 
-                    // Store assistant response as simple string content
                     self.messages.append(["role": "assistant", "content": fullResponse])
                     continuation.yield(.done("openclaw"))
+                    continuation.finish()
+                } catch {
+                    self.messages.removeLast()
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
+    // MARK: - Anthropic Messages API format
+
+    private func chatAnthropic(message: String, conversationId: String?, images: [(NSImage, String)] = []) -> AsyncThrowingStream<SSEEvent, Error> {
+        // Build user message in Anthropic format
+        let userMessage: [String: Any]
+        if images.isEmpty {
+            userMessage = ["role": "user", "content": message]
+        } else {
+            var content: [[String: Any]] = []
+            content.append(["type": "text", "text": message])
+            for (image, label) in images {
+                content.append(["type": "text", "text": label])
+                if let base64 = Self.toBase64PNG(image) {
+                    content.append([
+                        "type": "image",
+                        "source": [
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": base64
+                        ]
+                    ])
+                }
+            }
+            userMessage = ["role": "user", "content": content]
+        }
+        messages.append(userMessage)
+
+        return AsyncThrowingStream { continuation in
+            Task {
+                guard let url = URL(string: "\(baseURL)/v1/messages") else {
+                    self.messages.removeLast()
+                    continuation.finish(throwing: URLError(.badURL))
+                    return
+                }
+
+                NSLog("[Anthropic] POST %@", url.absoluteString)
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue(authToken, forHTTPHeaderField: "x-api-key")
+                request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+                // Convert stored messages: strip image data from history to save tokens
+                let apiMessages = self.messages.map { msg -> [String: Any] in
+                    guard let content = msg["content"] else { return msg }
+                    if content is String { return msg }
+                    // For array content, keep images only in the latest message
+                    if let arr = content as? [[String: Any]], msg as NSDictionary != self.messages.last! as NSDictionary {
+                        let textOnly = arr.filter { ($0["type"] as? String) == "text" }
+                        return ["role": msg["role"] as Any, "content": textOnly]
+                    }
+                    return msg
+                }
+
+                let body: [String: Any] = [
+                    "model": modelName,
+                    "max_tokens": 8192,
+                    "messages": apiMessages,
+                    "stream": true
+                ]
+                request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+                let session = URLSession(configuration: .default)
+
+                do {
+                    let (bytes, response) = try await session.bytes(for: request)
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        self.messages.removeLast()
+                        continuation.finish(throwing: URLError(.badServerResponse))
+                        return
+                    }
+
+                    if httpResponse.statusCode != 200 {
+                        // Try to read error body
+                        var errorBody = ""
+                        for try await line in bytes.lines {
+                            errorBody += line
+                            if errorBody.count > 500 { break }
+                        }
+                        NSLog("[Anthropic] HTTP %d: %@", httpResponse.statusCode, errorBody)
+                        self.messages.removeLast()
+                        continuation.yield(.error("HTTP \(httpResponse.statusCode)"))
+                        continuation.finish()
+                        return
+                    }
+
+                    continuation.yield(.status("thinking"))
+                    var fullResponse = ""
+                    var firstChunk = true
+
+                    for try await line in bytes.lines {
+                        // Anthropic SSE: "event: ..." then "data: {...}"
+                        guard line.hasPrefix("data: ") else { continue }
+                        let payload = String(line.dropFirst(6))
+
+                        guard let data = payload.data(using: .utf8),
+                              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                              let type = json["type"] as? String else {
+                            continue
+                        }
+
+                        switch type {
+                        case "content_block_delta":
+                            guard let delta = json["delta"] as? [String: Any],
+                                  let text = delta["text"] as? String else { continue }
+                            if firstChunk {
+                                continuation.yield(.status("responding"))
+                                firstChunk = false
+                            }
+                            fullResponse += text
+                            continuation.yield(.delta(text))
+
+                        case "message_stop":
+                            break
+
+                        case "error":
+                            let errorMsg = (json["error"] as? [String: Any])?["message"] as? String ?? "Unknown error"
+                            continuation.yield(.error(errorMsg))
+
+                        default:
+                            break
+                        }
+                    }
+
+                    // Store assistant response (text only, no images)
+                    self.messages.append(["role": "assistant", "content": fullResponse])
+                    continuation.yield(.done("anthropic"))
                     continuation.finish()
                 } catch {
                     self.messages.removeLast()
