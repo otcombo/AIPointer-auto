@@ -20,6 +20,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var eventTapManager: EventTapManager!
     private var cursorHider: CursorHider!
     private var viewModel: PointerViewModel!
+    private var verificationService: VerificationService!
     private var settingsWindow: NSWindow?
     private var isEnabled = true
     private var isFollowingMouse = true
@@ -39,6 +40,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         cursorHider?.restore()
         eventTapManager?.stop()
+        verificationService?.stop()
     }
 
     // MARK: - Setup
@@ -132,6 +134,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.overlayPanel.ignoresMouseEvents = true
                 self.cursorHider.hide()
 
+            case .monitoring, .codeReady:
+                self.overlayPanel.ignoresMouseEvents = true
+                self.overlayPanel.allowsKeyWindow = false
+                self.cursorHider.hide()
+
             case .input, .thinking, .responding, .response:
                 self.overlayPanel.ignoresMouseEvents = false
                 self.overlayPanel.allowsKeyWindow = true
@@ -175,6 +182,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self, selector: #selector(settingsChanged),
             name: UserDefaults.didChangeNotification, object: nil
         )
+
+        // Verification code service — passively monitors for OTP fields
+        verificationService = VerificationService()
+        verificationService.onStateChanged = { [weak self] state in
+            self?.viewModel.updateVerificationState(state)
+        }
+        verificationService.start()
 
         eventTapManager.start()
         cursorHider.hide()
@@ -347,10 +361,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if isEnabled {
             cursorHider.hide()
             eventTapManager.start()
+            verificationService.start()
             overlayPanel.orderFrontRegardless()
         } else {
             cursorHider.restore()
             eventTapManager.stop()
+            verificationService.stop()
             overlayPanel.orderOut(nil)
         }
 

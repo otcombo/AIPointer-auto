@@ -151,6 +151,18 @@ class OverlayPanel: NSPanel {
             allowsKeyWindow = false
             animateCollapse()
 
+        case .monitoring:
+            ignoresMouseEvents = true
+            allowsKeyWindow = false
+
+        case .codeReady(let code):
+            ignoresMouseEvents = true
+            allowsKeyWindow = false
+            let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+            let textWidth = (code as NSString).size(withAttributes: [.font: font]).width
+            let w = max(textWidth + 20, 16)
+            snapToMouse(width: w, height: 20)
+
         case .input, .thinking, .responding, .response:
             ignoresMouseEvents = false
             allowsKeyWindow = true

@@ -21,9 +21,19 @@ struct PointerRootView: View {
         return count * 48 + (count - 1) * 6 + 20
     }
 
+    private var codeReadyWidth: CGFloat {
+        if case .codeReady(let code) = viewModel.state {
+            let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+            let textWidth = (code as NSString).size(withAttributes: [.font: font]).width
+            return max(textWidth + 20, 16)
+        }
+        return 16
+    }
+
     private var shapeWidth: CGFloat {
         switch viewModel.state {
-        case .idle: return 16
+        case .idle, .monitoring: return 16
+        case .codeReady: return codeReadyWidth
         case .input:
             let contentWidth = max(inputBarWidth, thumbnailStripWidth)
             return min(contentWidth, 440)
@@ -41,6 +51,10 @@ struct PointerRootView: View {
                     switch viewModel.state {
                     case .idle:
                         Color.clear.frame(width: 16, height: 16)
+                    case .monitoring:
+                        MonitoringIndicator()
+                    case .codeReady(let code):
+                        CodeReadyCursor(code: code)
                     case .input:
                         VStack(alignment: .leading, spacing: 0) {
                             // Attachment preview in input mode

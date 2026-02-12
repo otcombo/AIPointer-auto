@@ -7,10 +7,16 @@ enum PointerState: Equatable {
     case responding(text: String)
     case response(text: String)
 
+    // Verification code states
+    case monitoring              // OTP field detected, watching for code
+    case codeReady(code: String) // Code found, displaying before auto-fill
+
     var isFixed: Bool {
         switch self {
-        case .idle: return false
-        default: return true
+        case .idle, .monitoring, .codeReady:
+            return false
+        default:
+            return true
         }
     }
 }
