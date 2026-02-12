@@ -6,7 +6,7 @@ class PointerViewModel: ObservableObject {
     @Published var inputText = ""
     @Published var attachedImages: [SelectedRegion] = []
 
-    private let apiService = ClaudeAPIService()
+    private let apiService = OpenClawService()
     private var conversationId: String?
     private var currentTask: Task<Void, Never>?
 

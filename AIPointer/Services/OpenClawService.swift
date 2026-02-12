@@ -8,7 +8,7 @@ enum SSEEvent {
     case error(String)
 }
 
-class ClaudeAPIService: NSObject, URLSessionDataDelegate {
+class OpenClawService: NSObject, URLSessionDataDelegate {
     private var baseURL = ""
     private var authToken = ""
     private var agentId = "main"
