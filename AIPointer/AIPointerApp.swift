@@ -27,6 +27,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // Screenshot support
     private var screenshotViewModel: ScreenshotViewModel?
     private var screenshotWindows: [ScreenshotOverlayWindow] = []
+    private var panelFrameBeforeScreenshot: NSRect = .zero
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -123,8 +124,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         viewModel.onStateChanged = { [weak self] state in
             guard let self else { return }
             self.isFollowingMouse = !state.isFixed
-            let inputHeight: CGFloat = self.viewModel.attachedImages.isEmpty ? 34 : 80
-            self.overlayPanel.updateForState(state, inputHeight: inputHeight)
+            self.overlayPanel.updateForState(state)
 
             switch state {
             case .idle:
@@ -202,6 +202,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Check Screen Recording permission
         guard ScreenRecordingPermission.promptIfNeeded() else { return }
 
+        // Save panel position so we can restore it on cancel
+        panelFrameBeforeScreenshot = overlayPanel.frame
+
         // Hide the overlay panel and restore system cursor
         overlayPanel.orderOut(nil)
         cursorHider.restore()
@@ -209,8 +212,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Set crosshair cursor
         NSCursor.crosshair.push()
 
-        // Create screenshot view model
+        // Create screenshot view model, continuing numbering from existing attachments
         let ssViewModel = ScreenshotViewModel()
+        ssViewModel.existingCount = viewModel.attachedImages.count
         screenshotViewModel = ssViewModel
 
         // Create overlay window for each screen
@@ -302,11 +306,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         screenshotWindows = []
         screenshotViewModel = nil
 
+        // Restore panel at its original position (not current mouse position)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        overlayPanel.setFrame(panelFrameBeforeScreenshot, display: false)
+        CATransaction.commit()
+
         // Re-hide system cursor and show overlay panel
         cursorHider.hide()
         overlayPanel.orderFrontRegardless()
 
-        // Re-activate the panel
+        // Re-activate the panel and restore input focus
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             NSApp.activate(ignoringOtherApps: true)
             self.overlayPanel.makeKeyAndOrderFront(nil)

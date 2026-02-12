@@ -44,17 +44,20 @@ class ScreenshotOverlayWindow: NSWindow {
         self.hasShadow = false
         self.ignoresMouseEvents = false
 
+        // Subview frames use zero origin — the window itself is positioned via contentRect.
+        let viewBounds = NSRect(origin: .zero, size: screen.frame.size)
+
         // Bottom layer: NSView for mouse events + coordinate conversion
-        let selectionView = ScreenshotSelectionNSView(frame: screen.frame, viewModel: viewModel, displayID: targetDisplayID)
+        let selectionView = ScreenshotSelectionNSView(frame: viewBounds, viewModel: viewModel, displayID: targetDisplayID)
         selectionView.autoresizingMask = [.width, .height]
 
         // Top layer: SwiftUI for rendering overlays (mouse events pass through via hitTest override)
         let overlayView = ScreenshotOverlayView(viewModel: viewModel, screenFrame: screen.frame)
         let hostingView = PassThroughHostingView(rootView: overlayView)
-        hostingView.frame = selectionView.bounds
+        hostingView.frame = viewBounds
         hostingView.autoresizingMask = [.width, .height]
 
-        let container = NSView(frame: screen.frame)
+        let container = NSView(frame: viewBounds)
         container.wantsLayer = true
         container.addSubview(selectionView)
         container.addSubview(hostingView)
@@ -96,24 +99,27 @@ class ScreenshotSelectionNSView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let point = toQuartz(convert(event.locationInWindow, from: nil))
-        Task { @MainActor in
+        MainActor.assumeIsolated {
             viewModel.mouseDown(at: point, displayID: displayID)
         }
     }
 
     override func mouseDragged(with event: NSEvent) {
         let point = toQuartz(convert(event.locationInWindow, from: nil))
-        Task { @MainActor in
+        MainActor.assumeIsolated {
             viewModel.mouseDragged(to: point)
         }
     }
 
     override func mouseUp(with event: NSEvent) {
         let point = toQuartz(convert(event.locationInWindow, from: nil))
-        Task { @MainActor in
+        MainActor.assumeIsolated {
             viewModel.mouseUp(at: point, displayID: displayID)
         }
     }
 
     override var acceptsFirstResponder: Bool { true }
+
+    /// Allow the first click to start a drag without requiring window activation.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }

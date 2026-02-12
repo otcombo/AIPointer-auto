@@ -20,7 +20,6 @@ struct InputBar: View {
     @Binding var text: String
     var onSubmit: () -> Void
     var onCancel: () -> Void
-    var attachmentCount: Int = 0
     var onScreenshot: (() -> Void)? = nil
 
     private var barWidth: CGFloat {
@@ -33,16 +32,6 @@ struct InputBar: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            // Attachment count badge
-            if attachmentCount > 0 {
-                Text("\(attachmentCount)")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(.white)
-                    .frame(width: 18, height: 18)
-                    .background(Color.blue)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
-            }
-
             AppKitTextField(
                 text: $text,
                 onSubmit: onSubmit,
@@ -74,7 +63,7 @@ struct InputBar: View {
 #Preview {
     VStack(alignment: .leading, spacing: 16) {
         InputBar(text: .constant(""), onSubmit: {}, onCancel: {})
-        InputBar(text: .constant("show me today's todo"), onSubmit: {}, onCancel: {}, attachmentCount: 2, onScreenshot: {})
+        InputBar(text: .constant("show me today's todo"), onSubmit: {}, onCancel: {}, onScreenshot: {})
     }
     .padding(40)
     .background(Color.gray)

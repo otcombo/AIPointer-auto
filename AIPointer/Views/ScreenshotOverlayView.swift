@@ -18,7 +18,7 @@ struct ScreenshotOverlayView: View {
 
             // Render completed regions
             ForEach(Array(viewModel.regions.enumerated()), id: \.element.id) { index, region in
-                regionOverlay(region.rect, index: index + 1)
+                regionOverlay(region.rect, index: viewModel.existingCount + index + 1)
             }
 
             // Render current drag rectangle
@@ -32,13 +32,6 @@ struct ScreenshotOverlayView: View {
                     )
                     .frame(width: local.width, height: local.height)
                     .position(x: local.midX, y: local.midY)
-            }
-
-            // Bottom instruction bar
-            VStack {
-                Spacer()
-                instructionBar
-                    .padding(.bottom, 40)
             }
 
             // Top-right region counter
@@ -99,36 +92,8 @@ struct ScreenshotOverlayView: View {
 
     // MARK: - UI components
 
-    private var instructionBar: some View {
-        HStack(spacing: 16) {
-            shortcutHint(key: "Drag", label: "Select area")
-            shortcutHint(key: "⌫", label: "Undo last")
-            shortcutHint(key: "⏎", label: "Confirm")
-            shortcutHint(key: "Esc", label: "Cancel")
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(Color.black.opacity(0.7))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-    }
-
-    private func shortcutHint(key: String, label: String) -> some View {
-        HStack(spacing: 4) {
-            Text(key)
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundColor(.white)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.white.opacity(0.2))
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-            Text(label)
-                .font(.system(size: 11))
-                .foregroundColor(.white.opacity(0.7))
-        }
-    }
-
     private var regionCounter: some View {
-        Text("\(viewModel.regions.count)/\(ScreenshotViewModel.maxRegions) regions")
+        Text("\(viewModel.existingCount + viewModel.regions.count)/\(ScreenshotViewModel.maxRegions) regions")
             .font(.system(size: 12, weight: .medium))
             .foregroundColor(.white)
             .padding(.horizontal, 10)

@@ -15,6 +15,9 @@ class ScreenshotViewModel: ObservableObject {
     @Published var regions: [SelectedRegion] = []
     @Published private(set) var phase: ScreenshotPhase = .selecting
 
+    /// Number of existing attachments, so badge numbering continues from previous screenshots.
+    var existingCount: Int = 0
+
     var onComplete: (([SelectedRegion]) -> Void)?
     var onCancel: (() -> Void)?
 
@@ -31,7 +34,7 @@ class ScreenshotViewModel: ObservableObject {
     // MARK: - Mouse events (called from NSView, coordinates already in Quartz)
 
     func mouseDown(at point: NSPoint, displayID: CGDirectDisplayID) {
-        guard case .selecting = phase, regions.count < Self.maxRegions else { return }
+        guard case .selecting = phase, (existingCount + regions.count) < Self.maxRegions else { return }
         phase = .dragging(origin: point, current: point)
     }
 
