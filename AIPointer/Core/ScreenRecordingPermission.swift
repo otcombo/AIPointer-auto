@@ -1,15 +1,15 @@
 import Cocoa
+import ScreenCaptureKit
 
 enum ScreenRecordingPermission {
-    /// Check if Screen Recording permission is granted by attempting a 1x1 capture.
-    static func isGranted() -> Bool {
-        let image = CGWindowListCreateImage(
-            CGRect(x: 0, y: 0, width: 1, height: 1),
-            .optionOnScreenOnly,
-            kCGNullWindowID,
-            []
-        )
-        return image != nil
+    /// Check if Screen Recording permission is granted by querying ScreenCaptureKit.
+    static func isGranted() async -> Bool {
+        do {
+            _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            return true
+        } catch {
+            return false
+        }
     }
 
     /// Open System Settings → Privacy & Security → Screen Recording.
@@ -21,8 +21,8 @@ enum ScreenRecordingPermission {
 
     /// Show an alert prompting the user to grant Screen Recording permission.
     @MainActor
-    static func promptIfNeeded() -> Bool {
-        if isGranted() { return true }
+    static func promptIfNeeded() async -> Bool {
+        if await isGranted() { return true }
 
         let alert = NSAlert()
         alert.messageText = "Screen Recording Required"
