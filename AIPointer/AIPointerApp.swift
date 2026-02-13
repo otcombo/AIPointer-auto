@@ -56,10 +56,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "AI Pointer", action: nil, keyEquivalent: ""))
-        menu.addItem(NSMenuItem.separator())
 
-        let toggleItem = NSMenuItem(title: "Enabled", action: #selector(toggleEnabled), keyEquivalent: "")
+        let toggleItem = NSMenuItem(title: "Enable AI Pointer", action: #selector(toggleEnabled), keyEquivalent: "")
         toggleItem.state = .on
         toggleItem.target = self
         menu.addItem(toggleItem)
@@ -130,7 +128,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // React to every state change
         viewModel.onStateChanged = { [weak self] state in
-            guard let self else { return }
+            guard let self, self.isEnabled else { return }
             self.isFollowingMouse = !state.isFixed
             self.overlayPanel.updateForState(state)
 
@@ -505,7 +503,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if let menu = statusItem.menu,
-           let toggleItem = menu.item(at: 2) {
+           let toggleItem = menu.item(at: 0) {
             toggleItem.state = isEnabled ? .on : .off
         }
     }
