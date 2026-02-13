@@ -107,17 +107,18 @@ class OpenClawService: NSObject, URLSessionDataDelegate {
         messages = []
     }
 
-    /// Convert NSImage to base64-encoded PNG string.
-    static func toBase64PNG(_ image: NSImage) -> String? {
+    /// Convert NSImage to base64-encoded JPEG string (quality 85%).
+    /// Falls back to scaling down if the result exceeds 300KB.
+    static func toBase64JPEG(_ image: NSImage) -> String? {
         guard let tiff = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiff),
-              let png = bitmap.representation(using: .png, properties: [:]) else {
+              let jpeg = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.85]) else {
             return nil
         }
 
-        // If larger than 1MB, scale down and re-encode
-        if png.count > 1_048_576 {
-            let scale = sqrt(1_048_576.0 / Double(png.count))
+        // If larger than 300KB, scale down and re-encode
+        if jpeg.count > 307_200 {
+            let scale = sqrt(307_200.0 / Double(jpeg.count))
             let newWidth = Int(Double(bitmap.pixelsWide) * scale)
             let newHeight = Int(Double(bitmap.pixelsHigh) * scale)
 
@@ -129,12 +130,12 @@ class OpenClawService: NSObject, URLSessionDataDelegate {
 
             if let resizedTiff = resized.tiffRepresentation,
                let resizedBitmap = NSBitmapImageRep(data: resizedTiff),
-               let resizedPng = resizedBitmap.representation(using: .png, properties: [:]) {
-                return resizedPng.base64EncodedString()
+               let resizedJpeg = resizedBitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.85]) {
+                return resizedJpeg.base64EncodedString()
             }
         }
 
-        return png.base64EncodedString()
+        return jpeg.base64EncodedString()
     }
 
     /// Stateless single-shot request to OpenClaw.
@@ -231,10 +232,10 @@ class OpenClawService: NSObject, URLSessionDataDelegate {
             content.append(["type": "text", "text": message])
             for (image, label) in images {
                 content.append(["type": "text", "text": label])
-                if let base64 = Self.toBase64PNG(image) {
+                if let base64 = Self.toBase64JPEG(image) {
                     content.append([
                         "type": "image_url",
-                        "image_url": ["url": "data:image/png;base64,\(base64)"]
+                        "image_url": ["url": "data:image/jpeg;base64,\(base64)"]
                     ])
                 }
             }
@@ -333,12 +334,12 @@ class OpenClawService: NSObject, URLSessionDataDelegate {
         content.append(["type": "text", "text": message])
         for (image, label) in images {
             content.append(["type": "text", "text": label])
-            if let base64 = Self.toBase64PNG(image) {
+            if let base64 = Self.toBase64JPEG(image) {
                 content.append([
                     "type": "image",
                     "source": [
                         "type": "base64",
-                        "media_type": "image/png",
+                        "media_type": "image/jpeg",
                         "data": base64
                     ]
                 ])

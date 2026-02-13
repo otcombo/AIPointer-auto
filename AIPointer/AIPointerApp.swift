@@ -335,8 +335,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let filter = SCContentFilter(display: display, excludingWindows: [])
                 let config = SCStreamConfiguration()
                 config.sourceRect = localRect
-                config.width = Int(region.rect.width) * 2
-                config.height = Int(region.rect.height) * 2
+                // Clamp output dimensions:
+                // - Max 1568px per side (Anthropic's vision limit; larger images are
+                //   downscaled server-side, wasting TTFR without improving quality).
+                // - Min 200px shortest side (below this, vision accuracy degrades).
+                //   If aspect ratio is too extreme, max takes priority over min.
+                let maxDim: CGFloat = 1568
+                let minDim: CGFloat = 200
+                var outW = region.rect.width
+                var outH = region.rect.height
+                // Step 1: Downscale so neither side exceeds maxDim
+                let downScale = min(maxDim / outW, maxDim / outH, 1.0)
+                outW *= downScale; outH *= downScale
+                // Step 2: Upscale so shortest side reaches minDim (if possible
+                // without exceeding maxDim on the other side)
+                let shortSide = min(outW, outH)
+                if shortSide < minDim {
+                    let maxUpScale = min(maxDim / outW, maxDim / outH)
+                    let upScale = min(minDim / shortSide, maxUpScale)
+                    outW *= upScale; outH *= upScale
+                }
+                config.width = Int(outW)
+                config.height = Int(outH)
                 config.showsCursor = false
                 config.captureResolution = .best
 
@@ -346,7 +366,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 ) {
                     let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
                     print("[Screenshot] region=\(region.rect) localRect=\(localRect) cgImage=\(cgImage.width)x\(cgImage.height)")
-                    if let b64 = OpenClawService.toBase64PNG(nsImage) {
+                    if let b64 = OpenClawService.toBase64JPEG(nsImage) {
                         print("[Screenshot] base64 length=\(b64.count) chars (\(b64.count * 3 / 4 / 1024)KB)")
                     }
                     let debugPath = NSString(string: "~/Desktop/debug_screenshot_\(capturedRegions.count).png").expandingTildeInPath
