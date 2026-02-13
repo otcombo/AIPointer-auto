@@ -1,32 +1,23 @@
 import SwiftUI
 
-/// Breathing dot overlay on the teardrop cursor when monitoring for a verification code.
+/// Teardrop cursor with a radio waves icon when monitoring for a verification code.
+/// Size: 24x24, icon is dot.radiowaves.up.forward rotated 90° CW.
+/// Breathe animation: opacity pulses between 0.4 and 1.0.
 struct MonitoringIndicator: View {
-    @State private var opacity: Double = 0.3
+    @State private var opacity: Double = 0.4
 
     var body: some View {
-        ZStack {
-            PointerShape(radius: 12)
-                .fill(Color.black.opacity(0.95))
-                .overlay(
-                    PointerShape(radius: 12)
-                        .stroke(Color.white, lineWidth: 2)
-                )
-                .shadow(color: .black.opacity(0.25), radius: 3.75, x: 0, y: 3.75)
-
-            // Breathing dot: centered slightly toward bottom-right (like StatusIndicator)
-            Circle()
-                .fill(Color.green)
-                .frame(width: 4, height: 4)
-                .offset(x: 2, y: 2)
-                .opacity(opacity)
-                .onAppear {
-                    withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
-                        opacity = 1.0
-                    }
+        Image(systemName: "dot.radiowaves.up.forward")
+            .font(.system(size: 13, weight: .bold))
+            .foregroundColor(.white)
+            .opacity(opacity)
+            .rotationEffect(.degrees(90))
+            .frame(width: 24, height: 24)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
+                    opacity = 1.0
                 }
-        }
-        .frame(width: 16, height: 16)
+            }
     }
 }
 

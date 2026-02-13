@@ -1,40 +1,24 @@
 import SwiftUI
 
 /// Expanded teardrop cursor displaying a verification code.
-/// The cursor widens horizontally to fit the code digits (like the input bar expansion).
+/// Padding matches InputBar (.horizontal 10, .vertical 8) so the two states feel consistent.
 struct CodeReadyCursor: View {
     let code: String
 
-    private var cursorWidth: CGFloat {
-        let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
-        let textWidth = (code as NSString).size(withAttributes: [.font: font]).width
-        return max(textWidth + 20, 16)
-    }
-
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            PointerShape(radius: 12)
-                .fill(Color.black.opacity(0.95))
-                .overlay(
-                    PointerShape(radius: 12)
-                        .stroke(Color.white, lineWidth: 2)
-                )
-                .shadow(color: .black.opacity(0.25), radius: 3.75, x: 0, y: 3.75)
-
-            Text(code)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .foregroundColor(.white.opacity(0.6))
-                .padding(.leading, 6)
-                .padding(.top, 3)
-        }
-        .frame(width: cursorWidth, height: 16)
+        Text(code)
+            .font(.system(size: 13, weight: .medium, design: .monospaced))
+            .foregroundColor(.white.opacity(0.5))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
     }
 }
 
 #Preview {
     VStack(spacing: 20) {
-        CodeReadyCursor(code: "384729")
+        CodeReadyCursor(code: "345679")
         CodeReadyCursor(code: "1234")
+        CodeReadyCursor(code: "38472918")
     }
     .padding(40)
     .background(Color.gray)

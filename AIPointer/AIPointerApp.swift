@@ -50,7 +50,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupMenuBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "cursorarrow.click.2", accessibilityDescription: "AI Pointer")
+            let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+            button.image = NSImage(systemSymbolName: "pointer.arrow.ipad.rays", accessibilityDescription: "AI Pointer")?.withSymbolConfiguration(config)
         }
 
         let menu = NSMenu()

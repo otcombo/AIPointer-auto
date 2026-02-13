@@ -23,16 +23,17 @@ struct PointerRootView: View {
 
     private var codeReadyWidth: CGFloat {
         if case .codeReady(let code) = viewModel.state {
-            let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+            let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .medium)
             let textWidth = (code as NSString).size(withAttributes: [.font: font]).width
-            return max(textWidth + 20, 16)
+            return textWidth + 20 // horizontal padding 10*2
         }
         return 16
     }
 
     private var shapeWidth: CGFloat {
         switch viewModel.state {
-        case .idle, .monitoring: return 16
+        case .idle: return 16
+        case .monitoring: return 24
         case .codeReady: return codeReadyWidth
         case .input:
             let contentWidth = max(inputBarWidth, thumbnailStripWidth)
