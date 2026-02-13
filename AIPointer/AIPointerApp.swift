@@ -299,9 +299,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(100))
 
-            // Query available displays once
-            let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-            let displays = content?.displays ?? []
+            // Query available displays
+            let displays: [SCDisplay]
+            do {
+                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                displays = content.displays
+            } catch {
+                print("[Screenshot] Failed to query displays: \(error)")
+                self.restoreAfterScreenshot(regions: [])
+                return
+            }
+
+            guard !displays.isEmpty else {
+                print("[Screenshot] No displays available")
+                self.restoreAfterScreenshot(regions: [])
+                return
+            }
 
             // Capture each region
             var capturedRegions: [SelectedRegion] = []
@@ -309,9 +322,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let display = displays.first(where: { $0.displayID == region.displayID })
                         ?? displays.first else { continue }
 
+                // Convert global Quartz coordinates to display-local coordinates.
+                // region.rect is in global Quartz space (origin at top-left of primary display).
+                // sourceRect expects coordinates relative to the target display's origin.
+                let displayOrigin = CGPoint(x: CGFloat(display.frame.origin.x),
+                                            y: CGFloat(display.frame.origin.y))
+                let localRect = CGRect(x: region.rect.origin.x - displayOrigin.x,
+                                       y: region.rect.origin.y - displayOrigin.y,
+                                       width: region.rect.width,
+                                       height: region.rect.height)
+
                 let filter = SCContentFilter(display: display, excludingWindows: [])
                 let config = SCStreamConfiguration()
-                config.sourceRect = region.rect
+                config.sourceRect = localRect
                 config.width = Int(region.rect.width) * 2
                 config.height = Int(region.rect.height) * 2
                 config.showsCursor = false
@@ -322,7 +345,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     configuration: config
                 ) {
                     let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-                    print("[Screenshot] region=\(region.rect) cgImage=\(cgImage.width)x\(cgImage.height)")
+                    print("[Screenshot] region=\(region.rect) localRect=\(localRect) cgImage=\(cgImage.width)x\(cgImage.height)")
                     if let b64 = OpenClawService.toBase64PNG(nsImage) {
                         print("[Screenshot] base64 length=\(b64.count) chars (\(b64.count * 3 / 4 / 1024)KB)")
                     }
@@ -339,25 +362,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
 
-            // Clean up
-            self.screenshotWindows = []
-            self.screenshotViewModel = nil
+            self.restoreAfterScreenshot(regions: capturedRegions)
+        }
+    }
 
-            // Attach screenshots and restore overlay
-            self.viewModel.attachScreenshots(capturedRegions)
+    /// Clean up screenshot state and restore the overlay panel.
+    private func restoreAfterScreenshot(regions: [SelectedRegion]) {
+        screenshotWindows = []
+        screenshotViewModel = nil
 
-            // Re-hide system cursor and show overlay panel
-            self.cursorHider.hide()
-            self.overlayPanel.orderFrontRegardless()
+        viewModel.attachScreenshots(regions)
 
-            // Force state update to resize panel for attachments
-            self.overlayPanel.updateForState(self.viewModel.state)
-            self.overlayPanel.ignoresMouseEvents = false
-            self.overlayPanel.allowsKeyWindow = true
+        cursorHider.hide()
+        overlayPanel.orderFrontRegardless()
 
-            // Activate and focus the text field directly (don't go through
-            // onStateChanged which would race with a delayed hostingView focus)
-            try? await Task.sleep(for: .milliseconds(50))
+        overlayPanel.updateForState(viewModel.state)
+        overlayPanel.ignoresMouseEvents = false
+        overlayPanel.allowsKeyWindow = true
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             NSApp.activate(ignoringOtherApps: true)
             self.overlayPanel.makeKeyAndOrderFront(nil)
             self.focusTextField()
