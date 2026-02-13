@@ -20,6 +20,12 @@ class OpenClawService: NSObject, URLSessionDataDelegate {
     private var modelName = "anthropic/claude-sonnet-4-5"
     private var apiFormat: APIFormat = .anthropic
     private var messages: [[String: Any]] = []
+    private var activeSession: URLSession?
+
+    func cancel() {
+        activeSession?.invalidateAndCancel()
+        activeSession = nil
+    }
 
     func configure(baseURL: String, authToken: String, agentId: String, modelName: String = "", apiFormat: APIFormat = .anthropic) {
         self.baseURL = baseURL
@@ -118,7 +124,9 @@ class OpenClawService: NSObject, URLSessionDataDelegate {
                 ]
                 request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
+                self.activeSession?.invalidateAndCancel()
                 let session = URLSession(configuration: .default)
+                self.activeSession = session
 
                 do {
                     let (bytes, response) = try await session.bytes(for: request)
@@ -234,7 +242,9 @@ class OpenClawService: NSObject, URLSessionDataDelegate {
                 ]
                 request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
+                self.activeSession?.invalidateAndCancel()
                 let session = URLSession(configuration: .default)
+                self.activeSession = session
 
                 do {
                     let (bytes, response) = try await session.bytes(for: request)

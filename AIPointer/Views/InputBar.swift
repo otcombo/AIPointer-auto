@@ -25,8 +25,8 @@ struct InputBar: View {
     @State private var isHovering = false
 
     private var barWidth: CGFloat {
-        if text.isEmpty { return 60 }
-        let font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        if text.isEmpty { return 70 }
+        let font = NSFont.systemFont(ofSize: 15, weight: .medium)
         let textWidth = (text as NSString).size(withAttributes: [.font: font]).width
         // text width + horizontal padding (10*2) + some breathing room (20)
         return min(max(textWidth + 40, 60), 440)
