@@ -20,6 +20,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var eventTapManager: EventTapManager!
     private var cursorHider: CursorHider!
     private var viewModel: PointerViewModel!
+    private var verificationService: VerificationService!
+    private var openClawService: OpenClawService!
     private var settingsWindow: NSWindow?
     private var isEnabled = true
     private var isFollowingMouse = true
@@ -40,6 +42,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         cursorHider?.restore()
         eventTapManager?.stop()
+        verificationService?.stop()
     }
 
     // MARK: - Setup
@@ -47,7 +50,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupMenuBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "cursorarrow.click.2", accessibilityDescription: "AI Pointer")
+            let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+            button.image = NSImage(systemSymbolName: "pointer.arrow.ipad.rays", accessibilityDescription: "AI Pointer")?.withSymbolConfiguration(config)
         }
 
         let menu = NSMenu()
@@ -106,6 +110,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         cursorHider = CursorHider()
         viewModel = PointerViewModel()
         eventTapManager = EventTapManager()
+        openClawService = OpenClawService()
 
         // Apply stored settings
         applySettings()
@@ -132,6 +137,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             case .idle:
                 self.overlayPanel.allowsKeyWindow = false
                 self.overlayPanel.ignoresMouseEvents = true
+                self.cursorHider.hide()
+
+            case .monitoring, .codeReady:
+                self.overlayPanel.ignoresMouseEvents = true
+                self.overlayPanel.allowsKeyWindow = false
                 self.cursorHider.hide()
 
             case .input, .thinking, .responding, .response:
@@ -184,6 +194,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             name: UserDefaults.didChangeNotification, object: nil
         )
 
+        // Verification code service — passively monitors for OTP fields
+        verificationService = VerificationService()
+        verificationService.openClawService = openClawService
+        verificationService.onStateChanged = { [weak self] state in
+            self?.viewModel.updateVerificationState(state)
+        }
+        verificationService.start()
+
         eventTapManager.start()
         cursorHider.hide()
         overlayPanel.orderFrontRegardless()
@@ -196,6 +214,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let url = (defaults.string(forKey: "backendURL") ?? "http://localhost:18789").trimmingCharacters(in: .whitespacesAndNewlines)
 
         viewModel.configureAPI(baseURL: url)
+        openClawService.configure(baseURL: url)
     }
 
     @objc private func settingsChanged() {
@@ -421,10 +440,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if isEnabled {
             cursorHider.hide()
             eventTapManager.start()
+            verificationService.start()
             overlayPanel.orderFrontRegardless()
         } else {
             cursorHider.restore()
             eventTapManager.stop()
+            verificationService.stop()
             overlayPanel.orderOut(nil)
         }
 

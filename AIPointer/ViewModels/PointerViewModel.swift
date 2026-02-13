@@ -22,13 +22,26 @@ class PointerViewModel: ObservableObject {
 
     func onFnPress() {
         switch state {
-        case .idle:
+        case .idle, .monitoring, .codeReady:
             state = .input
             inputText = ""
             attachedImages = []
             onStateChanged?(state)
         default:
             dismiss()
+        }
+    }
+
+    /// Called by VerificationService when verification state changes.
+    func updateVerificationState(_ newState: PointerState) {
+        // Only allow verification states to override idle/monitoring/codeReady.
+        // Don't interrupt active chat states (input/thinking/responding/response).
+        switch state {
+        case .idle, .monitoring, .codeReady:
+            state = newState
+            onStateChanged?(state)
+        default:
+            break
         }
     }
 
