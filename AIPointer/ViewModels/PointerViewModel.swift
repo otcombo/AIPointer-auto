@@ -16,8 +16,8 @@ class PointerViewModel: ObservableObject {
     /// Callback to request entering screenshot mode
     var onScreenshotRequested: (() -> Void)?
 
-    func configureAPI(baseURL: String, authToken: String, agentId: String, modelName: String = "", apiFormat: APIFormat = .anthropic) {
-        apiService.configure(baseURL: baseURL, authToken: authToken, agentId: agentId, modelName: modelName, apiFormat: apiFormat)
+    func configureAPI(baseURL: String) {
+        apiService.configure(baseURL: baseURL)
     }
 
     func onFnPress() {
