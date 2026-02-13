@@ -335,8 +335,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let filter = SCContentFilter(display: display, excludingWindows: [])
                 let config = SCStreamConfiguration()
                 config.sourceRect = localRect
-                config.width = Int(region.rect.width) * 2
-                config.height = Int(region.rect.height) * 2
+                // Clamp output dimensions:
+                // - Max 1568px per side (Anthropic's vision limit; larger images are
+                //   downscaled server-side, wasting TTFR without improving quality).
+                // - Min 200px shortest side (below this, vision accuracy degrades).
+                let maxDim: CGFloat = 1568
+                let minDim: CGFloat = 200
+                let downScale = min(maxDim / region.rect.width, maxDim / region.rect.height, 1.0)
+                let shortSide = min(region.rect.width, region.rect.height) * downScale
+                let upScale = shortSide < minDim ? minDim / shortSide : 1.0
+                let finalScale = downScale * upScale
+                config.width = max(Int(region.rect.width * finalScale), Int(minDim))
+                config.height = max(Int(region.rect.height * finalScale), Int(minDim))
                 config.showsCursor = false
                 config.captureResolution = .best
 
@@ -346,7 +356,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 ) {
                     let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
                     print("[Screenshot] region=\(region.rect) localRect=\(localRect) cgImage=\(cgImage.width)x\(cgImage.height)")
-                    if let b64 = OpenClawService.toBase64PNG(nsImage) {
+                    if let b64 = OpenClawService.toBase64JPEG(nsImage) {
                         print("[Screenshot] base64 length=\(b64.count) chars (\(b64.count * 3 / 4 / 1024)KB)")
                     }
                     let debugPath = NSString(string: "~/Desktop/debug_screenshot_\(capturedRegions.count).png").expandingTildeInPath
