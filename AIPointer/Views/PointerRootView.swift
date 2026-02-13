@@ -110,9 +110,16 @@ struct PointerRootView: View {
                 }
                 .frame(width: shapeWidth, alignment: .topLeading)
                 .clipShape(PointerShape(radius: 12))
-                .background(PointerShape(radius: 12).fill(Color.black.opacity(0.95)))
+                .background(
+                    ZStack {
+                        VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
+                            .clipShape(PointerShape(radius: 12))
+                        PointerShape(radius: 12)
+                            .fill(Color.black.opacity(viewModel.state.isExpanded ? 0.3 : 0.1))
+                    }
+                    .shadow(color: .black.opacity(0.25), radius: 3.75, x: 0, y: 3.75)
+                )
                 .overlay(PointerShape(radius: 12).stroke(Color.white, lineWidth: 2))
-                .shadow(color: .black.opacity(0.25), radius: 3.75, x: 0, y: 3.75)
                 .padding(14) // Offset from panel edge = shadow padding
             }
             .animation(

@@ -41,7 +41,7 @@ struct ChatPanel: View {
             if isThinking {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(.white.opacity(0.5))
+                    .foregroundColor(.white)
                     .symbolEffect(.breathe)
             }
 
