@@ -11,13 +11,34 @@ enum SSEEvent {
 class OpenClawService: NSObject, URLSessionDataDelegate {
     private var baseURL = ""
     private var authToken = ""
-    private var agentId = "main"
     private var messages: [[String: Any]] = []
+    private var activeSession: URLSession?
 
-    func configure(baseURL: String, authToken: String, agentId: String) {
-        self.baseURL = baseURL
-        self.authToken = authToken
-        self.agentId = agentId
+    func cancel() {
+        activeSession?.invalidateAndCancel()
+        activeSession = nil
+    }
+
+    func configure(baseURL: String) {
+        // Strip trailing slashes
+        var url = baseURL
+        while url.hasSuffix("/") { url = String(url.dropLast()) }
+        self.baseURL = url
+        self.authToken = Self.readTokenFromConfig() ?? ""
+        NSLog("[API] configured: url=%@ token=%@", self.baseURL, authToken.isEmpty ? "(none)" : "(set)")
+    }
+
+    /// Read auth token from ~/.openclaw/openclaw.json
+    private static func readTokenFromConfig() -> String? {
+        let path = NSString(string: "~/.openclaw/openclaw.json").expandingTildeInPath
+        guard let data = FileManager.default.contents(atPath: path),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let gateway = json["gateway"] as? [String: Any],
+              let auth = gateway["auth"] as? [String: Any],
+              let token = auth["token"] as? String else {
+            return nil
+        }
+        return token
     }
 
     func clearHistory() {
@@ -55,15 +76,12 @@ class OpenClawService: NSObject, URLSessionDataDelegate {
     }
 
     func chat(message: String, conversationId: String?, images: [(NSImage, String)] = []) -> AsyncThrowingStream<SSEEvent, Error> {
-        // Build message content
         let userMessage: [String: Any]
         if images.isEmpty {
             userMessage = ["role": "user", "content": message]
         } else {
             var content: [[String: Any]] = []
-            // Text part first
             content.append(["type": "text", "text": message])
-            // Then each image with its label
             for (image, label) in images {
                 content.append(["type": "text", "text": label])
                 if let base64 = Self.toBase64PNG(image) {
@@ -87,22 +105,26 @@ class OpenClawService: NSObject, URLSessionDataDelegate {
 
                 var request = URLRequest(url: url)
                 request.httpMethod = "POST"
-                request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                if !self.authToken.isEmpty {
+                    request.setValue("Bearer \(self.authToken)", forHTTPHeaderField: "Authorization")
+                }
+                request.setValue("agent:main:main", forHTTPHeaderField: "x-openclaw-session-key")
 
                 let body: [String: Any] = [
-                    "model": "openclaw:\(agentId)",
+                    "model": "openclaw:main",
                     "messages": messages,
                     "stream": true,
                     "user": "aipointer"
                 ]
                 request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
+                self.activeSession?.invalidateAndCancel()
                 let session = URLSession(configuration: .default)
+                self.activeSession = session
 
                 do {
                     let (bytes, response) = try await session.bytes(for: request)
-
                     guard let httpResponse = response as? HTTPURLResponse else {
                         self.messages.removeLast()
                         continuation.finish(throwing: URLError(.badServerResponse))
@@ -117,17 +139,13 @@ class OpenClawService: NSObject, URLSessionDataDelegate {
                     }
 
                     continuation.yield(.status("thinking"))
-
                     var fullResponse = ""
                     var firstChunk = true
 
                     for try await line in bytes.lines {
                         guard line.hasPrefix("data: ") else { continue }
                         let payload = String(line.dropFirst(6))
-
-                        if payload == "[DONE]" {
-                            break
-                        }
+                        if payload == "[DONE]" { break }
 
                         guard let data = payload.data(using: .utf8),
                               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -142,12 +160,10 @@ class OpenClawService: NSObject, URLSessionDataDelegate {
                             continuation.yield(.status("responding"))
                             firstChunk = false
                         }
-
                         fullResponse += content
                         continuation.yield(.delta(content))
                     }
 
-                    // Store assistant response as simple string content
                     self.messages.append(["role": "assistant", "content": fullResponse])
                     continuation.yield(.done("openclaw"))
                     continuation.finish()

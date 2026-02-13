@@ -1,5 +1,17 @@
 import SwiftUI
 
+struct DarkOverlayWithCutouts: Shape {
+    let cutouts: [CGRect]
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path(rect)
+        for cutout in cutouts {
+            path.addRect(cutout)
+        }
+        return path
+    }
+}
+
 /// SwiftUI rendering layer for screenshot selection overlays.
 /// Uses `allowsHitTesting(false)` so mouse events pass through to the NSView below.
 struct ScreenshotOverlayView: View {
@@ -11,10 +23,19 @@ struct ScreenshotOverlayView: View {
         NSScreen.screens.first?.frame.height ?? screenFrame.height
     }
 
+    private var allCutouts: [CGRect] {
+        var rects = viewModel.regions.map { quartzToLocal($0.rect) }
+        if let dragRect = viewModel.currentDragRect {
+            rects.append(quartzToLocal(dragRect))
+        }
+        return rects
+    }
+
     var body: some View {
         ZStack {
-            // Semi-transparent dark overlay
-            Color.black.opacity(0.3)
+            // Dark overlay with cutouts for selected regions
+            DarkOverlayWithCutouts(cutouts: allCutouts)
+                .fill(Color.black.opacity(0.3), style: FillStyle(eoFill: true))
 
             // Render completed regions
             ForEach(Array(viewModel.regions.enumerated()), id: \.element.id) { index, region in
@@ -24,14 +45,23 @@ struct ScreenshotOverlayView: View {
             // Render current drag rectangle
             if let dragRect = viewModel.currentDragRect {
                 let local = quartzToLocal(dragRect)
-                RoundedRectangle(cornerRadius: 0)
-                    .fill(Color.blue.opacity(0.15))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 0)
-                            .stroke(Color.blue, lineWidth: 2)
-                    )
-                    .frame(width: local.width, height: local.height)
-                    .position(x: local.midX, y: local.midY)
+                ZStack(alignment: .topTrailing) {
+                    Rectangle()
+                        .stroke(Color.blue, lineWidth: 2)
+                        .frame(width: local.width, height: local.height)
+
+                    // Size label
+                    Text("\(Int(dragRect.width)) × \(Int(dragRect.height))")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Color.blue)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .offset(x: 0, y: -24)
+                }
+                .frame(width: local.width, height: local.height)
+                .position(x: local.midX, y: local.midY)
             }
 
             // Top-right region counter
@@ -55,12 +85,8 @@ struct ScreenshotOverlayView: View {
     private func regionOverlay(_ rect: CGRect, index: Int) -> some View {
         let local = quartzToLocal(rect)
         ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 0)
-                .fill(Color.blue.opacity(0.3))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 0)
-                        .stroke(Color.blue, lineWidth: 2)
-                )
+            Rectangle()
+                .stroke(Color.blue, lineWidth: 2)
                 .frame(width: local.width, height: local.height)
 
             // Number badge

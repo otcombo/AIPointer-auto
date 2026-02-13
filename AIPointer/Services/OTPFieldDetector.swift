@@ -52,6 +52,15 @@ struct OTPFieldDetector {
             }
         }
 
+        // Tier 2: placeholder, label, description, or title matches verification patterns
+        let textHints = [attrs.placeholderValue, attrs.label, attrs.axDescription, attrs.title]
+            .compactMap { $0 }
+        for text in textHints {
+            if matchesVerificationPattern(text) {
+                return .tier2
+            }
+        }
+
         // --- Tier 3: Combination signals ---
 
         var signals = 0
@@ -265,13 +274,13 @@ struct AXAttributes {
         return nil
     }
 
-    private func string(_ attr: String) -> String? {
+    func string(_ attr: String) -> String? {
         var ref: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attr as CFString, &ref) == .success else { return nil }
         return ref as? String
     }
 
-    private func string(_ attr: CFString) -> String? {
+    func string(_ attr: CFString) -> String? {
         string(attr as String)
     }
 }

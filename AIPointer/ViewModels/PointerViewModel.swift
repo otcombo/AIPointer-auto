@@ -16,8 +16,8 @@ class PointerViewModel: ObservableObject {
     /// Callback to request entering screenshot mode
     var onScreenshotRequested: (() -> Void)?
 
-    func configureAPI(baseURL: String, authToken: String, agentId: String) {
-        apiService.configure(baseURL: baseURL, authToken: authToken, agentId: agentId)
+    func configureAPI(baseURL: String) {
+        apiService.configure(baseURL: baseURL)
     }
 
     func onFnPress() {
@@ -43,6 +43,15 @@ class PointerViewModel: ObservableObject {
         default:
             break
         }
+    }
+
+    /// Prepare input state for direct screenshot entry (from idle).
+    /// Sets state to .input without triggering onStateChanged, so the panel doesn't pop up.
+    func prepareForScreenshot() {
+        state = .input
+        inputText = ""
+        attachedImages = []
+        // Intentionally no onStateChanged — panel stays hidden, goes straight to screenshot
     }
 
     func requestScreenshot() {
@@ -85,6 +94,7 @@ class PointerViewModel: ObservableObject {
             do {
                 let stream = apiService.chat(message: messageText, conversationId: conversationId, images: images)
                 for try await event in stream {
+                    guard !Task.isCancelled else { break }
                     switch event {
                     case .delta(let chunk):
                         if case .responding(let existing) = state {
@@ -111,13 +121,16 @@ class PointerViewModel: ObservableObject {
                     onStateChanged?(state)
                 }
             } catch {
-                state = .response(text: "Error: \(error.localizedDescription)")
-                onStateChanged?(state)
+                if !Task.isCancelled {
+                    state = .response(text: "Error: \(error.localizedDescription)")
+                    onStateChanged?(state)
+                }
             }
         }
     }
 
     func dismiss() {
+        apiService.cancel()
         currentTask?.cancel()
         currentTask = nil
         state = .idle

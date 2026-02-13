@@ -4,10 +4,10 @@ struct PointerRootView: View {
     @ObservedObject var viewModel: PointerViewModel
 
     private var inputBarWidth: CGFloat {
-        if viewModel.inputText.isEmpty { return 60 }
-        let font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        if viewModel.inputText.isEmpty { return 70 }
+        let font = NSFont.systemFont(ofSize: 15, weight: .medium)
         let textWidth = (viewModel.inputText as NSString).size(withAttributes: [.font: font]).width
-        return min(max(textWidth + 40, 60), 440)
+        return min(max(textWidth + 44, 70), 440)
     }
 
     private var hasAttachments: Bool {

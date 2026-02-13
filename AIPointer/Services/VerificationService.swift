@@ -4,14 +4,16 @@ import ApplicationServices
 /// Orchestrates the verification code auto-fill lifecycle:
 /// 1. AccessibilityMonitor detects focused element changes
 /// 2. OTPFieldDetector checks if the focused element is an OTP field
-/// 3. If yes → transition to .monitoring, start CodeSourceMonitor
-/// 4. CodeSourceMonitor finds a code → transition to .codeReady
-/// 5. After 1 second delay → auto-fill the code into the field → .idle
+/// 3. If yes → transition to .monitoring (green dot), start CodeSourceMonitor
+/// 4. If focus leaves OTP field → .idle (no visual), but keep monitoring in background
+/// 5. CodeSourceMonitor finds a code:
+///    - If focused on OTP → .codeReady → auto-fill
+///    - If not focused → stash as pendingCode (delivered when user refocuses OTP field)
+/// 6. After 1 second delay → auto-fill the code into the field → .idle
 ///
 /// Auto-stop conditions:
 /// - Code successfully filled
 /// - User typed 4-8 digits manually
-/// - User left the OTP field for 30 seconds
 /// - 3 minute overall timeout
 @MainActor
 final class VerificationService {
@@ -22,15 +24,21 @@ final class VerificationService {
 
     private var currentOTPField: AXUIElement?
     private var isMonitoring = false
+    private var focusedOnOTP = false
+    private var pendingCode: String?
     private var autoFillTimer: Timer?
-    private var fieldLeftTimer: Timer?
+    private var pendingCodeTimer: Timer?
     private var fieldValueCheckTimer: Timer?
+    private var overallTimer: Timer?
 
     /// Delay before auto-filling (1 second).
     private let autoFillDelay: TimeInterval = 1.0
 
-    /// Time after leaving OTP field before stopping (30 seconds).
-    private let fieldLeftTimeout: TimeInterval = 30.0
+    /// Time to keep pendingCode alive after leaving OTP field (30 seconds).
+    private let pendingCodeTimeout: TimeInterval = 30.0
+
+    /// Overall timeout for the monitoring session (3 minutes).
+    private let overallTimeout: TimeInterval = 180.0
 
     // MARK: - Lifecycle
 
@@ -59,22 +67,40 @@ final class VerificationService {
 
     private func handleFocusChange(element: AXUIElement) {
         let confidence = OTPFieldDetector.detect(element: element)
+        debugLog("[Verify] handleFocusChange → confidence=\(confidence), isMonitoring=\(isMonitoring), pendingCode=\(pendingCode ?? "nil")")
 
         switch confidence {
         case .tier1, .tier2, .tier3:
+            focusedOnOTP = true
+            pendingCodeTimer?.invalidate()
+            pendingCodeTimer = nil
+
             if !isMonitoring {
                 startMonitoring(field: element)
             } else {
-                // Update the tracked field (user may have moved to a different OTP field)
                 currentOTPField = element
-                fieldLeftTimer?.invalidate()
-                fieldLeftTimer = nil
+            }
+
+            // If we have a code waiting, deliver it now
+            if let code = pendingCode {
+                pendingCode = nil
+                onStateChanged?(.codeReady(code: code))
+                autoFillTimer?.invalidate()
+                autoFillTimer = Timer.scheduledTimer(withTimeInterval: autoFillDelay, repeats: false) { [weak self] _ in
+                    Task { @MainActor in
+                        self?.performAutoFill(code: code)
+                    }
+                }
+            } else {
+                onStateChanged?(.monitoring)
             }
 
         case .none:
+            focusedOnOTP = false
             if isMonitoring {
-                // User left the OTP field — start the 30s countdown
-                startFieldLeftTimer()
+                // Hide visual but keep monitoring in background
+                onStateChanged?(.idle)
+                startPendingCodeTimer()
             }
         }
     }
@@ -83,23 +109,30 @@ final class VerificationService {
 
     private func startMonitoring(field: AXUIElement) {
         isMonitoring = true
+        focusedOnOTP = true
         currentOTPField = field
+        pendingCode = nil
 
         onStateChanged?(.monitoring)
         codeSourceMonitor.start()
         startFieldValueChecking()
+        startOverallTimer()
     }
 
     private func stopMonitoring() {
         isMonitoring = false
+        focusedOnOTP = false
         currentOTPField = nil
+        pendingCode = nil
 
         autoFillTimer?.invalidate()
         autoFillTimer = nil
-        fieldLeftTimer?.invalidate()
-        fieldLeftTimer = nil
+        pendingCodeTimer?.invalidate()
+        pendingCodeTimer = nil
         fieldValueCheckTimer?.invalidate()
         fieldValueCheckTimer = nil
+        overallTimer?.invalidate()
+        overallTimer = nil
 
         codeSourceMonitor.stop()
 
@@ -111,15 +144,21 @@ final class VerificationService {
     private func handleCodeFound(_ code: String) {
         guard isMonitoring else { return }
 
-        // Show the code in the cursor
-        onStateChanged?(.codeReady(code: code))
+        debugLog("[Verify] handleCodeFound → code=\(code), focusedOnOTP=\(focusedOnOTP)")
 
-        // Auto-fill after 1 second
-        autoFillTimer?.invalidate()
-        autoFillTimer = Timer.scheduledTimer(withTimeInterval: autoFillDelay, repeats: false) { [weak self] _ in
-            Task { @MainActor in
-                self?.performAutoFill(code: code)
+        if focusedOnOTP {
+            // User is on the OTP field — show and auto-fill
+            onStateChanged?(.codeReady(code: code))
+            autoFillTimer?.invalidate()
+            autoFillTimer = Timer.scheduledTimer(withTimeInterval: autoFillDelay, repeats: false) { [weak self] _ in
+                Task { @MainActor in
+                    self?.performAutoFill(code: code)
+                }
             }
+        } else {
+            // User is not on the OTP field — stash for later
+            pendingCode = code
+            debugLog("[Verify] Code stashed as pendingCode (focus not on OTP field)")
         }
     }
 
@@ -143,8 +182,6 @@ final class VerificationService {
         let result = AXUIElementSetAttributeValue(field, kAXValueAttribute as CFString, code as CFTypeRef)
 
         if result == .success {
-            // Confirm the value was set by posting a value changed notification
-            AXUIElementPostNotification(field, kAXValueChangedNotification as CFString)
             stopMonitoring()
         } else {
             // Fallback: simulate keyboard input
@@ -194,12 +231,6 @@ final class VerificationService {
     private func checkFieldValue() {
         guard isMonitoring, let field = currentOTPField else { return }
 
-        // Check timeout
-        if codeSourceMonitor.isTimedOut {
-            stopMonitoring()
-            return
-        }
-
         // Check if user typed a code themselves
         let attrs = AXAttributes(element: field)
         if let value = attrs.value,
@@ -209,12 +240,26 @@ final class VerificationService {
         }
     }
 
-    // MARK: - Field left timer
+    // MARK: - Pending code timer (soft timeout for stashed codes)
 
-    private func startFieldLeftTimer() {
-        fieldLeftTimer?.invalidate()
-        fieldLeftTimer = Timer.scheduledTimer(withTimeInterval: fieldLeftTimeout, repeats: false) { [weak self] _ in
+    private func startPendingCodeTimer() {
+        pendingCodeTimer?.invalidate()
+        pendingCodeTimer = Timer.scheduledTimer(withTimeInterval: pendingCodeTimeout, repeats: false) { [weak self] _ in
             Task { @MainActor in
+                guard let self else { return }
+                debugLog("[Verify] Pending code timeout — clearing pendingCode")
+                self.pendingCode = nil
+            }
+        }
+    }
+
+    // MARK: - Overall timeout (3 minutes)
+
+    private func startOverallTimer() {
+        overallTimer?.invalidate()
+        overallTimer = Timer.scheduledTimer(withTimeInterval: overallTimeout, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                debugLog("[Verify] Overall timeout (3 min) — stopping monitoring")
                 self?.stopMonitoring()
             }
         }
@@ -222,7 +267,8 @@ final class VerificationService {
 
     deinit {
         autoFillTimer?.invalidate()
-        fieldLeftTimer?.invalidate()
+        pendingCodeTimer?.invalidate()
         fieldValueCheckTimer?.invalidate()
+        overallTimer?.invalidate()
     }
 }
