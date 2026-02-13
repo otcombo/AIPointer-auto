@@ -3,14 +3,14 @@ import CoreGraphics
 
 class EventTapManager {
     var onMouseMoved: ((NSPoint) -> Void)?
-    var onFnKeyDown: (() -> Void)?
-    var onFnKeyUp: (() -> Void)?
+    var onFnShortPress: (() -> Void)?   // fn 松开时触发（短按）
+    var onFnLongPress: (() -> Void)?    // 长按超过阈值时触发
 
     /// When true, fn key events are consumed and won't trigger the system emoji picker.
     var suppressFnKey = true
 
-    /// How long fn must be held before triggering (seconds). Set to 0 for instant.
-    var longPressDuration: TimeInterval = 0
+    /// 长按触发截图的阈值（秒）
+    var longPressThreshold: TimeInterval = 0.4
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -124,29 +124,27 @@ class EventTapManager {
                 lastFnEventTime = mach_absolute_time()
                 let fnDown = event.flags.contains(.maskSecondaryFn)
                 if fnDown && !previousFnState {
-                    fnLongPressTriggered = false
+                    // fn pressed down
                     fnPressWorkItem?.cancel()
+                    fnLongPressTriggered = false
 
-                    if longPressDuration <= 0 {
-                        fnLongPressTriggered = true
-                        onFnKeyDown?()
-                    } else {
-                        let workItem = DispatchWorkItem { [weak self] in
-                            guard let self, self.previousFnState else { return }
-                            self.fnLongPressTriggered = true
-                            self.onFnKeyDown?()
-                        }
-                        fnPressWorkItem = workItem
-                        DispatchQueue.main.asyncAfter(
-                            deadline: .now() + longPressDuration,
-                            execute: workItem
-                        )
+                    let workItem = DispatchWorkItem { [weak self] in
+                        guard let self, self.previousFnState else { return }
+                        self.fnLongPressTriggered = true
+                        self.onFnLongPress?()
                     }
+                    fnPressWorkItem = workItem
+                    DispatchQueue.main.asyncAfter(
+                        deadline: .now() + longPressThreshold,
+                        execute: workItem
+                    )
                 } else if !fnDown && previousFnState {
+                    // fn released
                     fnPressWorkItem?.cancel()
                     fnPressWorkItem = nil
-                    if fnLongPressTriggered {
-                        onFnKeyUp?()
+                    if !fnLongPressTriggered {
+                        // Short press — trigger on release
+                        onFnShortPress?()
                     }
                     fnLongPressTriggered = false
                 }

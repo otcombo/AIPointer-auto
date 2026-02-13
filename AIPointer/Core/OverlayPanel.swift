@@ -151,20 +151,10 @@ class OverlayPanel: NSPanel {
             allowsKeyWindow = false
             animateCollapse()
 
-        case .input:
+        case .input, .thinking, .responding, .response:
             ignoresMouseEvents = false
             allowsKeyWindow = true
-            snapToMouse(width: 440, height: 42)
-
-        case .thinking:
-            ignoresMouseEvents = false
-            allowsKeyWindow = true
-            snapToMouse(width: 440, height: 80)
-
-        case .responding, .response:
-            ignoresMouseEvents = false
-            allowsKeyWindow = true
-            snapToMouse(width: 440, height: 280)
+            snapToMouse(width: 440, height: 300)
         }
     }
 

@@ -9,6 +9,11 @@ struct ChatPanel: View {
     @Binding var inputText: String
     var onSubmit: () -> Void
     var onDismiss: () -> Void
+    var attachedImages: [SelectedRegion] = []
+    var onRemoveAttachment: ((Int) -> Void)? = nil
+    var onScreenshot: (() -> Void)? = nil
+
+    @State private var isHoveringInput = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -53,17 +58,47 @@ struct ChatPanel: View {
                 .padding(.vertical, 6)
             }
 
-            // Input field (always present)
-            AppKitTextField(
-                text: $inputText,
-                placeholder: "Ask anything...",
-                onSubmit: onSubmit,
-                onCancel: onDismiss,
-                isDisabled: false,
-                autoFocus: !(isThinking || isStreaming)
-            )
+            // Attachment preview strip
+            if !attachedImages.isEmpty {
+                AttachmentStripView(
+                    images: attachedImages,
+                    onRemove: { index in onRemoveAttachment?(index) }
+                )
+
+                Rectangle()
+                    .fill(Color.white.opacity(0.1))
+                    .frame(height: 1)
+                    .padding(.horizontal, 10)
+            }
+
+            // Input field with screenshot button (visible on hover)
+            HStack(spacing: 4) {
+                AppKitTextField(
+                    text: $inputText,
+                    placeholder: "Ask anything...",
+                    onSubmit: onSubmit,
+                    onCancel: onDismiss,
+                    isDisabled: isThinking || isStreaming,
+                    autoFocus: !(isThinking || isStreaming)
+                )
+
+                if let onScreenshot = onScreenshot, !(isThinking || isStreaming), isHoveringInput {
+                    Button(action: onScreenshot) {
+                        Image(systemName: "plus.viewfinder")
+                            .font(.system(size: 13))
+                            .foregroundColor(.white.opacity(0.5))
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.opacity)
+                }
+            }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
+            .onHover { hovering in
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isHoveringInput = hovering
+                }
+            }
         }
         .frame(minWidth: 200, maxWidth: 440)
     }

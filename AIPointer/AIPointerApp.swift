@@ -24,6 +24,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var isEnabled = true
     private var isFollowingMouse = true
 
+    // Screenshot support
+    private var screenshotViewModel: ScreenshotViewModel?
+    private var screenshotWindows: [ScreenshotOverlayWindow] = []
+    private var panelFrameBeforeScreenshot: NSRect = .zero
+    private var screenshotEnteredFromIdle = false
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         swizzleCharacterPalette()
@@ -110,6 +116,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         overlayPanel = OverlayPanel(hostingView: hostingView)
 
+        // Connect screenshot request (from camera button in input mode)
+        viewModel.onScreenshotRequested = { [weak self] in
+            self?.screenshotEnteredFromIdle = false
+            self?.startScreenshotMode()
+        }
+
         // React to every state change
         viewModel.onStateChanged = { [weak self] state in
             guard let self else { return }
@@ -154,9 +166,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        eventTapManager.onFnKeyDown = { [weak self] in
+        eventTapManager.onFnShortPress = { [weak self] in
             DispatchQueue.main.async {
                 self?.viewModel.onFnPress()
+            }
+        }
+
+        eventTapManager.onFnLongPress = { [weak self] in
+            DispatchQueue.main.async {
+                self?.handleFnLongPress()
             }
         }
 
@@ -174,16 +192,217 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func applySettings() {
         let defaults = UserDefaults.standard
         eventTapManager.suppressFnKey = defaults.object(forKey: "suppressFnKey") as? Bool ?? true
-        eventTapManager.longPressDuration = defaults.double(forKey: "longPressDuration") // 0 = instant
 
-        let url = defaults.string(forKey: "backendURL") ?? ""
-        let token = defaults.string(forKey: "authToken") ?? ""
-        let agentId = defaults.string(forKey: "agentId") ?? "main"
-        viewModel.configureAPI(baseURL: url, authToken: token, agentId: agentId)
+        let url = (defaults.string(forKey: "backendURL") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let token = (defaults.string(forKey: "authToken") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let agentId = (defaults.string(forKey: "agentId") ?? "main").trimmingCharacters(in: .whitespacesAndNewlines)
+        let modelName = (defaults.string(forKey: "modelName") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let formatStr = (defaults.string(forKey: "apiFormat") ?? "anthropic").trimmingCharacters(in: .whitespacesAndNewlines)
+        let apiFormat = APIFormat(rawValue: formatStr) ?? .anthropic
+
+        viewModel.configureAPI(baseURL: url, authToken: token, agentId: agentId, modelName: modelName, apiFormat: apiFormat)
     }
 
     @objc private func settingsChanged() {
         applySettings()
+    }
+
+    // MARK: - Fn Long Press → Screenshot
+
+    private func handleFnLongPress() {
+        switch viewModel.state {
+        case .idle:
+            // From idle, prepare input state silently and go straight to screenshot
+            screenshotEnteredFromIdle = true
+            viewModel.prepareForScreenshot()
+            startScreenshotMode()
+        case .input:
+            // Already in input mode — trigger screenshot (same as camera button)
+            screenshotEnteredFromIdle = false
+            startScreenshotMode()
+        default:
+            // thinking/responding/response — ignore
+            break
+        }
+    }
+
+    // MARK: - Screenshot Mode
+
+    private func startScreenshotMode() {
+        // Check Screen Recording permission
+        guard ScreenRecordingPermission.promptIfNeeded() else { return }
+
+        // Save panel position so we can restore it on cancel
+        panelFrameBeforeScreenshot = overlayPanel.frame
+
+        // Hide the overlay panel and restore system cursor
+        overlayPanel.orderOut(nil)
+        cursorHider.restore()
+
+        // Set crosshair cursor
+        NSCursor.crosshair.push()
+
+        // Create screenshot view model, continuing numbering from existing attachments
+        let ssViewModel = ScreenshotViewModel()
+        ssViewModel.existingCount = viewModel.attachedImages.count
+        screenshotViewModel = ssViewModel
+
+        // Create overlay window for each screen
+        screenshotWindows = NSScreen.screens.map { screen in
+            ScreenshotOverlayWindow(screen: screen, viewModel: ssViewModel)
+        }
+
+        // Connect callbacks
+        ssViewModel.onComplete = { [weak self] regions in
+            self?.completeScreenshot(regions: regions)
+        }
+
+        ssViewModel.onCancel = { [weak self] in
+            self?.cancelScreenshot()
+        }
+
+        // Show all overlay windows, make the main screen's window key
+        for (index, window) in screenshotWindows.enumerated() {
+            window.orderFrontRegardless()
+            if index == 0 {
+                window.makeKeyAndOrderFront(nil)
+            }
+        }
+    }
+
+    private func completeScreenshot(regions: [SelectedRegion]) {
+        // Hide all screenshot overlay windows first (to avoid capturing them)
+        for window in screenshotWindows {
+            window.orderOut(nil)
+        }
+
+        // Restore cursor: pop crosshair and force arrow to clear any cursor-rect residue
+        NSCursor.pop()
+        NSCursor.arrow.set()
+
+        // Brief delay to ensure windows are off-screen before capture
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self else { return }
+
+            // Capture each region
+            var capturedRegions: [SelectedRegion] = []
+            for region in regions {
+                if let cgImage = CGWindowListCreateImage(
+                    region.rect,
+                    .optionOnScreenOnly,
+                    kCGNullWindowID,
+                    [.bestResolution]
+                ) {
+                    let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+                    // Debug: save to desktop and log sizes
+                    print("[Screenshot] region=\(region.rect) cgImage=\(cgImage.width)x\(cgImage.height)")
+                    if let b64 = OpenClawService.toBase64PNG(nsImage) {
+                        print("[Screenshot] base64 length=\(b64.count) chars (\(b64.count * 3 / 4 / 1024)KB)")
+                    }
+                    let debugPath = NSString(string: "~/Desktop/debug_screenshot_\(capturedRegions.count).png").expandingTildeInPath
+                    if let tiff = nsImage.tiffRepresentation,
+                       let bitmap = NSBitmapImageRep(data: tiff),
+                       let png = bitmap.representation(using: .png, properties: [:]) {
+                        try? png.write(to: URL(fileURLWithPath: debugPath))
+                        print("[Screenshot] saved to \(debugPath)")
+                    }
+                    var captured = region
+                    captured.snapshot = nsImage
+                    capturedRegions.append(captured)
+                }
+            }
+
+            // Clean up
+            self.screenshotWindows = []
+            self.screenshotViewModel = nil
+
+            // Attach screenshots and restore overlay
+            self.viewModel.attachScreenshots(capturedRegions)
+
+            // Re-hide system cursor and show overlay panel
+            self.cursorHider.hide()
+            self.overlayPanel.orderFrontRegardless()
+
+            // Force state update to resize panel for attachments
+            self.overlayPanel.updateForState(self.viewModel.state)
+            self.overlayPanel.ignoresMouseEvents = false
+            self.overlayPanel.allowsKeyWindow = true
+
+            // Activate and focus the text field directly (don't go through
+            // onStateChanged which would race with a delayed hostingView focus)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                NSApp.activate(ignoringOtherApps: true)
+                self.overlayPanel.makeKeyAndOrderFront(nil)
+                self.focusTextField()
+            }
+        }
+    }
+
+    private func cancelScreenshot() {
+        // Hide all screenshot overlay windows
+        for window in screenshotWindows {
+            window.orderOut(nil)
+        }
+
+        // Restore cursor: pop crosshair and force arrow to clear any cursor-rect residue
+        NSCursor.pop()
+        NSCursor.arrow.set()
+
+        // Clean up
+        let fromIdle = screenshotEnteredFromIdle
+        screenshotWindows = []
+        screenshotViewModel = nil
+        screenshotEnteredFromIdle = false
+
+        if fromIdle {
+            // Entered from idle via FN long press — return to idle (default pointer, no panel)
+            // Re-show overlay panel first (it serves as the custom cursor in idle mode)
+            overlayPanel.orderFrontRegardless()
+            viewModel.dismiss()
+        } else {
+            // Entered from input mode — restore panel and focus text field
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            overlayPanel.setFrame(panelFrameBeforeScreenshot, display: false)
+            CATransaction.commit()
+
+            cursorHider.hide()
+            overlayPanel.orderFrontRegardless()
+
+            overlayPanel.ignoresMouseEvents = false
+            overlayPanel.allowsKeyWindow = true
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                NSApp.activate(ignoringOtherApps: true)
+                self.overlayPanel.makeKeyAndOrderFront(nil)
+                self.focusTextField()
+            }
+        }
+    }
+
+    /// Recursively find and focus the OrangeCaretTextField in the panel.
+    /// Retries with increasing delays to wait for SwiftUI layout.
+    private func focusTextField(attempt: Int = 0) {
+        guard let contentView = overlayPanel.contentView else { return }
+        if let textField = findTextField(in: contentView) {
+            overlayPanel.makeFirstResponder(textField)
+            return
+        }
+        // Retry up to 5 times with increasing delays
+        if attempt < 5 {
+            let delay = 0.05 * Double(attempt + 1)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.focusTextField(attempt: attempt + 1)
+            }
+        }
+    }
+
+    private func findTextField(in view: NSView) -> OrangeCaretTextField? {
+        if let tf = view as? OrangeCaretTextField { return tf }
+        for subview in view.subviews {
+            if let found = findTextField(in: subview) { return found }
+        }
+        return nil
     }
 
     // MARK: - Menu Actions
@@ -194,7 +413,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let window = NSWindow(contentViewController: hostingController)
             window.title = "AI Pointer Settings"
             window.styleMask = [.titled, .closable]
-            window.setContentSize(NSSize(width: 380, height: 260))
+            window.setContentSize(NSSize(width: 380, height: 420))
             window.center()
             settingsWindow = window
         }
