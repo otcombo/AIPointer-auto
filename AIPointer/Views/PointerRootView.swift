@@ -42,6 +42,10 @@ struct PointerRootView: View {
         }
     }
 
+    private var shapeRadius: CGFloat {
+        viewModel.state.isExpanded ? 20 : 12
+    }
+
     // MARK: - Dynamic expansion direction
 
     /// Whether content should expand right, based on current width and screen space.
@@ -132,17 +136,17 @@ struct PointerRootView: View {
                     }
                 }
                 .frame(width: shapeWidth, alignment: .topLeading)
-                .clipShape(PointerShape(radius: 12))
+                .clipShape(PointerShape(radius: shapeRadius))
                 .background(
                     ZStack {
                         VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
-                            .clipShape(PointerShape(radius: 12))
-                        PointerShape(radius: 12)
+                            .clipShape(PointerShape(radius: shapeRadius))
+                        PointerShape(radius: shapeRadius)
                             .fill(Color.black.opacity(viewModel.state.isExpanded ? 0.3 : 0.1))
                     }
                     .shadow(color: .black.opacity(0.25), radius: 3.75, x: 0, y: 3.75)
                 )
-                .overlay(PointerShape(radius: 12).stroke(Color.white, lineWidth: 2))
+                .overlay(PointerShape(radius: shapeRadius).stroke(Color.white, lineWidth: 2))
                 .padding(14) // Offset from panel edge = shadow padding
             }
             .onChange(of: shouldExpandRight) { _, newValue in

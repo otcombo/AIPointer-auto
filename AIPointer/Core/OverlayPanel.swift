@@ -153,9 +153,14 @@ class OverlayPanel: NSPanel {
         let duration: Double = 0.25
         let targetSize = paddedSize(20, 20)
         let p = Self.shadowPadding
+        let mouse = expansionMousePosition == .zero ? lastMousePosition : expansionMousePosition
         let targetOrigin = NSPoint(
-            x: lastMousePosition.x - p,
-            y: lastMousePosition.y - targetSize.height + p
+            x: expandsRight
+                ? mouse.x - p
+                : mouse.x - targetSize.width + p,
+            y: expandsDown
+                ? mouse.y - targetSize.height + p
+                : mouse.y - p
         )
         let startFrame = frame
         let startTime = CACurrentMediaTime()

@@ -14,6 +14,7 @@ struct ChatPanel: View {
     var onScreenshot: (() -> Void)? = nil
 
     @State private var isHoveringInput = false
+    @State private var isHoveringIcon = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -76,9 +77,11 @@ struct ChatPanel: View {
                         Image(systemName: "plus.viewfinder")
                             .font(.system(size: 13))
                             .foregroundColor(.white.opacity(0.5))
+                            .symbolEffect(.scale.up.byLayer, isActive: isHoveringIcon)
                     }
                     .buttonStyle(.plain)
                     .transition(.opacity)
+                    .onHover { isHoveringIcon = $0 }
                 }
             }
             .onHover { hovering in

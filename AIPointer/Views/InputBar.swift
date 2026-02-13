@@ -23,6 +23,7 @@ struct InputBar: View {
     var onScreenshot: (() -> Void)? = nil
 
     @State private var isHovering = false
+    @State private var isHoveringIcon = false
 
     private var barWidth: CGFloat {
         if text.isEmpty { return 110 }
@@ -46,10 +47,12 @@ struct InputBar: View {
                     Image(systemName: "plus.viewfinder")
                         .font(.system(size: 13))
                         .foregroundColor(.white.opacity(0.5))
+                        .symbolEffect(.scale.up.byLayer, isActive: isHoveringIcon)
                 }
                 .buttonStyle(.plain)
                 .transition(.opacity)
                 .onHover { hovering in
+                    isHoveringIcon = hovering
                     if hovering {
                         NSCursor.pointingHand.push()
                     } else {
