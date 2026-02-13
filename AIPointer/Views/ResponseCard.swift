@@ -22,7 +22,7 @@ struct ChatPanel: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         Text(responseText)
-                            .font(.custom("SF Compact Text", size: 15).weight(.medium))
+                            .font(.custom("SF Compact Text", size: 14).weight(.medium))
                             .foregroundColor(.white)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)

@@ -64,13 +64,13 @@ struct AppKitTextField: NSViewRepresentable {
         tf.focusRingType = .none
         tf.isBordered = false
         tf.drawsBackground = false
-        tf.font = NSFont.systemFont(ofSize: 15, weight: .medium)
+        tf.font = NSFont.systemFont(ofSize: 14, weight: .medium)
         tf.textColor = .white
         tf.placeholderString = placeholder
         tf.placeholderAttributedString = NSAttributedString(
             string: placeholder,
             attributes: [.foregroundColor: NSColor.white.withAlphaComponent(0.3),
-                         .font: NSFont.systemFont(ofSize: 15, weight: .medium)]
+                         .font: NSFont.systemFont(ofSize: 14, weight: .medium)]
         )
         tf.cell?.isScrollable = true
         tf.cell?.wraps = false
