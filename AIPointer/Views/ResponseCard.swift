@@ -34,28 +34,15 @@ struct ChatPanel: View {
                         }
                     }
                 }
-                .padding(.horizontal, 10)
-                .padding(.top, 8)
                 .frame(maxHeight: 200)
-
-                Rectangle()
-                    .fill(Color.white.opacity(0.1))
-                    .frame(height: 1)
-                    .padding(.horizontal, 10)
             }
 
             // Thinking indicator
             if isThinking {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .controlSize(.small)
-                        .colorScheme(.dark)
-                    Text("Thinking...")
-                        .font(.custom("SF Compact Text", size: 11))
-                        .foregroundColor(.white.opacity(0.5))
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(.white.opacity(0.5))
+                    .symbolEffect(.breathe)
             }
 
             // Attachment preview strip
@@ -64,12 +51,14 @@ struct ChatPanel: View {
                     images: attachedImages,
                     onRemove: { index in onRemoveAttachment?(index) }
                 )
-
-                Rectangle()
-                    .fill(Color.white.opacity(0.1))
-                    .frame(height: 1)
-                    .padding(.horizontal, 10)
             }
+
+            // Separator above input field
+            Rectangle()
+                .fill(Color.white.opacity(0.1))
+                .frame(height: 1)
+                .padding(.top, 14)
+                .padding(.bottom, 12)
 
             // Input field with screenshot button (visible on hover)
             HStack(spacing: 4) {
@@ -92,14 +81,13 @@ struct ChatPanel: View {
                     .transition(.opacity)
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
             .onHover { hovering in
                 withAnimation(.easeInOut(duration: 0.15)) {
                     isHoveringInput = hovering
                 }
             }
         }
+        .padding(14)
         .frame(minWidth: 200, maxWidth: 440)
     }
 }

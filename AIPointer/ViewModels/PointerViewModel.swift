@@ -138,4 +138,36 @@ class PointerViewModel: ObservableObject {
         attachedImages = []
         onStateChanged?(state)
     }
+
+    // MARK: - Debug: cycle through idle → monitoring → codeReady
+
+    private var debugCycleTask: Task<Void, Never>?
+    private let debugStates: [PointerState] = [
+        .idle,
+        .monitoring,
+        .codeReady(code: "583 214")
+    ]
+    private var debugIndex = 0
+
+    func startDebugCycle() {
+        stopDebugCycle()
+        debugIndex = 0
+        state = debugStates[0]
+        onStateChanged?(state)
+
+        debugCycleTask = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(3))
+                guard !Task.isCancelled else { break }
+                debugIndex = (debugIndex + 1) % debugStates.count
+                state = debugStates[debugIndex]
+                onStateChanged?(state)
+            }
+        }
+    }
+
+    func stopDebugCycle() {
+        debugCycleTask?.cancel()
+        debugCycleTask = nil
+    }
 }

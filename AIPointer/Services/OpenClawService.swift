@@ -160,8 +160,9 @@ class OpenClawService: NSObject, URLSessionDataDelegate {
                     ["role": "user", "content": prompt]
                 ]
 
+                let agentId = UserDefaults.standard.string(forKey: "agentId") ?? "main"
                 let body: [String: Any] = [
-                    "model": "openclaw:main",
+                    "model": "openclaw:\(agentId)",
                     "messages": messages,
                     "stream": true,
                     "user": "aipointer-autoverify"
@@ -257,13 +258,14 @@ class OpenClawService: NSObject, URLSessionDataDelegate {
                 if !self.authToken.isEmpty {
                     request.setValue("Bearer \(self.authToken)", forHTTPHeaderField: "Authorization")
                 }
-                request.setValue("agent:main:main", forHTTPHeaderField: "x-openclaw-session-key")
+                let agentId = UserDefaults.standard.string(forKey: "agentId") ?? "main"
+                request.setValue("agent:\(agentId):main", forHTTPHeaderField: "x-openclaw-session-key")
 
                 // Strip image content from history for OpenClaw (it can't handle images)
                 let cleanMessages = self.messages.map { Self.stripImages(from: $0) }
 
                 let body: [String: Any] = [
-                    "model": "openclaw:main",
+                    "model": "openclaw:\(agentId)",
                     "messages": cleanMessages,
                     "stream": true,
                     "user": "aipointer"

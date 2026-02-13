@@ -4,7 +4,7 @@ struct PointerRootView: View {
     @ObservedObject var viewModel: PointerViewModel
 
     private var inputBarWidth: CGFloat {
-        if viewModel.inputText.isEmpty { return 70 }
+        if viewModel.inputText.isEmpty { return 100 }
         let font = NSFont.systemFont(ofSize: 15, weight: .medium)
         let textWidth = (viewModel.inputText as NSString).size(withAttributes: [.font: font]).width
         return min(max(textWidth + 44, 70), 440)

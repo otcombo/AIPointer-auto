@@ -25,7 +25,7 @@ struct InputBar: View {
     @State private var isHovering = false
 
     private var barWidth: CGFloat {
-        if text.isEmpty { return 70 }
+        if text.isEmpty { return 100 }
         let font = NSFont.systemFont(ofSize: 15, weight: .medium)
         let textWidth = (text as NSString).size(withAttributes: [.font: font]).width
         // text width + horizontal padding (10*2) + some breathing room (20)
@@ -58,8 +58,7 @@ struct InputBar: View {
                 }
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(14)
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovering = hovering

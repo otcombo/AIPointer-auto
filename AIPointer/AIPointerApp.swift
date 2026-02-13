@@ -478,7 +478,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         if settingsWindow == nil {
-            let hostingController = NSHostingController(rootView: SettingsView())
+            let hostingController = NSHostingController(rootView: SettingsView(viewModel: viewModel))
             let window = NSWindow(contentViewController: hostingController)
             window.title = "AI Pointer Settings"
             window.styleMask = [.titled, .closable]
