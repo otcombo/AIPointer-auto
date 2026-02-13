@@ -28,6 +28,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var screenshotViewModel: ScreenshotViewModel?
     private var screenshotWindows: [ScreenshotOverlayWindow] = []
     private var panelFrameBeforeScreenshot: NSRect = .zero
+    private var screenshotEnteredFromIdle = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -115,8 +116,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         overlayPanel = OverlayPanel(hostingView: hostingView)
 
-        // Connect screenshot request
+        // Connect screenshot request (from camera button in input mode)
         viewModel.onScreenshotRequested = { [weak self] in
+            self?.screenshotEnteredFromIdle = false
             self?.startScreenshotMode()
         }
 
@@ -211,10 +213,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         switch viewModel.state {
         case .idle:
             // From idle, prepare input state silently and go straight to screenshot
+            screenshotEnteredFromIdle = true
             viewModel.prepareForScreenshot()
             startScreenshotMode()
         case .input:
             // Already in input mode — trigger screenshot (same as camera button)
+            screenshotEnteredFromIdle = false
             startScreenshotMode()
         default:
             // thinking/responding/response — ignore
@@ -272,8 +276,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             window.orderOut(nil)
         }
 
-        // Pop crosshair cursor
+        // Restore cursor: pop crosshair and force arrow to clear any cursor-rect residue
         NSCursor.pop()
+        NSCursor.arrow.set()
 
         // Brief delay to ensure windows are off-screen before capture
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
@@ -339,29 +344,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             window.orderOut(nil)
         }
 
-        // Pop crosshair cursor
+        // Restore cursor: pop crosshair and force arrow to clear any cursor-rect residue
         NSCursor.pop()
+        NSCursor.arrow.set()
 
         // Clean up
+        let fromIdle = screenshotEnteredFromIdle
         screenshotWindows = []
         screenshotViewModel = nil
+        screenshotEnteredFromIdle = false
 
-        // Restore panel at its original position (not current mouse position)
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        overlayPanel.setFrame(panelFrameBeforeScreenshot, display: false)
-        CATransaction.commit()
+        if fromIdle {
+            // Entered from idle via FN long press — return to idle (default pointer, no panel)
+            // Re-show overlay panel first (it serves as the custom cursor in idle mode)
+            overlayPanel.orderFrontRegardless()
+            viewModel.dismiss()
+        } else {
+            // Entered from input mode — restore panel and focus text field
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            overlayPanel.setFrame(panelFrameBeforeScreenshot, display: false)
+            CATransaction.commit()
 
-        // Re-hide system cursor and show overlay panel
-        cursorHider.hide()
-        overlayPanel.orderFrontRegardless()
+            cursorHider.hide()
+            overlayPanel.orderFrontRegardless()
 
-        // Re-activate the panel and restore input focus
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            NSApp.activate(ignoringOtherApps: true)
-            self.overlayPanel.makeKeyAndOrderFront(nil)
-            if let hostingView = self.overlayPanel.contentView?.subviews.first {
-                self.overlayPanel.makeFirstResponder(hostingView)
+            overlayPanel.ignoresMouseEvents = false
+            overlayPanel.allowsKeyWindow = true
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                NSApp.activate(ignoringOtherApps: true)
+                self.overlayPanel.makeKeyAndOrderFront(nil)
+                self.focusTextField()
             }
         }
     }
