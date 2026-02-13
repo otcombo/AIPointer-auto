@@ -19,6 +19,9 @@ import ApplicationServices
 final class VerificationService {
     var onStateChanged: ((PointerState) -> Void)?
 
+    /// Inject the shared OpenClawService for code fetching via IMAP.
+    var openClawService: OpenClawService?
+
     private let accessibilityMonitor = AccessibilityMonitor()
     private let codeSourceMonitor = CodeSourceMonitor()
 
@@ -114,6 +117,7 @@ final class VerificationService {
         pendingCode = nil
 
         onStateChanged?(.monitoring)
+        codeSourceMonitor.openClawService = openClawService
         codeSourceMonitor.start()
         startFieldValueChecking()
         startOverallTimer()

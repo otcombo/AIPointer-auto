@@ -75,6 +75,81 @@ class OpenClawService: NSObject, URLSessionDataDelegate {
         return png.base64EncodedString()
     }
 
+    /// Stateless single-shot request to OpenClaw.
+    /// Does not maintain chat history — each call is independent.
+    func executeCommand(prompt: String) -> AsyncThrowingStream<SSEEvent, Error> {
+        return AsyncThrowingStream { continuation in
+            Task {
+                guard let url = URL(string: "\(baseURL)/v1/chat/completions") else {
+                    continuation.finish(throwing: URLError(.badURL))
+                    return
+                }
+
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                if !self.authToken.isEmpty {
+                    request.setValue("Bearer \(self.authToken)", forHTTPHeaderField: "Authorization")
+                }
+                request.timeoutInterval = 30
+
+                let messages: [[String: Any]] = [
+                    ["role": "user", "content": prompt]
+                ]
+
+                let body: [String: Any] = [
+                    "model": "openclaw:main",
+                    "messages": messages,
+                    "stream": true,
+                    "user": "aipointer-autoverify"
+                ]
+                request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+                let session = URLSession(configuration: .default)
+
+                do {
+                    let (bytes, response) = try await session.bytes(for: request)
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        continuation.finish(throwing: URLError(.badServerResponse))
+                        return
+                    }
+
+                    if httpResponse.statusCode != 200 {
+                        continuation.yield(.error("HTTP \(httpResponse.statusCode)"))
+                        continuation.finish()
+                        return
+                    }
+
+                    var fullResponse = ""
+
+                    for try await line in bytes.lines {
+                        guard line.hasPrefix("data: ") else { continue }
+                        let payload = String(line.dropFirst(6))
+                        if payload == "[DONE]" { break }
+
+                        guard let data = payload.data(using: .utf8),
+                              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                              let choices = json["choices"] as? [[String: Any]],
+                              let choice = choices.first,
+                              let delta = choice["delta"] as? [String: Any],
+                              let content = delta["content"] as? String else {
+                            continue
+                        }
+
+                        fullResponse += content
+                        continuation.yield(.delta(content))
+                    }
+
+                    // Do NOT store in self.messages — stateless
+                    continuation.yield(.done("openclaw"))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
     func chat(message: String, conversationId: String?, images: [(NSImage, String)] = []) -> AsyncThrowingStream<SSEEvent, Error> {
         let userMessage: [String: Any]
         if images.isEmpty {

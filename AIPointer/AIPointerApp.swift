@@ -21,6 +21,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var cursorHider: CursorHider!
     private var viewModel: PointerViewModel!
     private var verificationService: VerificationService!
+    private var openClawService: OpenClawService!
     private var settingsWindow: NSWindow?
     private var isEnabled = true
     private var isFollowingMouse = true
@@ -108,6 +109,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         cursorHider = CursorHider()
         viewModel = PointerViewModel()
         eventTapManager = EventTapManager()
+        openClawService = OpenClawService()
 
         // Apply stored settings
         applySettings()
@@ -193,6 +195,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Verification code service — passively monitors for OTP fields
         verificationService = VerificationService()
+        verificationService.openClawService = openClawService
         verificationService.onStateChanged = { [weak self] state in
             self?.viewModel.updateVerificationState(state)
         }
@@ -210,6 +213,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let url = (defaults.string(forKey: "backendURL") ?? "http://localhost:18789").trimmingCharacters(in: .whitespacesAndNewlines)
 
         viewModel.configureAPI(baseURL: url)
+        openClawService.configure(baseURL: url)
     }
 
     @objc private func settingsChanged() {
