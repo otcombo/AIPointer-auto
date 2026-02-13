@@ -193,14 +193,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let defaults = UserDefaults.standard
         eventTapManager.suppressFnKey = defaults.object(forKey: "suppressFnKey") as? Bool ?? true
 
-        let url = (defaults.string(forKey: "backendURL") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let token = (defaults.string(forKey: "authToken") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let agentId = (defaults.string(forKey: "agentId") ?? "main").trimmingCharacters(in: .whitespacesAndNewlines)
-        let modelName = (defaults.string(forKey: "modelName") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let formatStr = (defaults.string(forKey: "apiFormat") ?? "anthropic").trimmingCharacters(in: .whitespacesAndNewlines)
-        let apiFormat = APIFormat(rawValue: formatStr) ?? .anthropic
+        let url = (defaults.string(forKey: "backendURL") ?? "http://localhost:18789").trimmingCharacters(in: .whitespacesAndNewlines)
 
-        viewModel.configureAPI(baseURL: url, authToken: token, agentId: agentId, modelName: modelName, apiFormat: apiFormat)
+        viewModel.configureAPI(baseURL: url)
     }
 
     @objc private func settingsChanged() {

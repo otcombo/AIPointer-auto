@@ -3,13 +3,7 @@ import AppKit
 
 struct SettingsView: View {
     @AppStorage("suppressFnKey") private var suppressFnKey = true
-    @AppStorage("apiFormat") private var apiFormat = "anthropic"
-    @AppStorage("backendURL") private var backendURL = ""
-    @AppStorage("authToken") private var authToken = ""
-    @AppStorage("agentId") private var agentId = "main"
-    @AppStorage("modelName") private var modelName = "anthropic/claude-sonnet-4-5"
-
-    private var isAnthropic: Bool { apiFormat == "anthropic" }
+    @AppStorage("backendURL") private var backendURL = "http://localhost:18789"
 
     var body: some View {
         Form {
@@ -32,33 +26,10 @@ struct SettingsView: View {
                 }
             }
 
-            Section("API") {
-                Picker("Format", selection: $apiFormat) {
-                    Text("Anthropic Messages").tag("anthropic")
-                    Text("OpenAI (OpenClaw)").tag("openai")
-                }
-                .pickerStyle(.segmented)
-
+            Section("OpenClaw") {
                 TextField("Server URL", text: $backendURL,
-                          prompt: Text(isAnthropic ? "https://api.anthropic.com" : "http://localhost:18789"))
+                          prompt: Text("http://localhost:18789"))
                     .textFieldStyle(.roundedBorder)
-
-                SecureField(isAnthropic ? "API Key" : "Auth Token", text: $authToken)
-                    .textFieldStyle(.roundedBorder)
-
-                if isAnthropic {
-                    TextField("Model", text: $modelName, prompt: Text("anthropic/claude-sonnet-4-5"))
-                        .textFieldStyle(.roundedBorder)
-                    Text("Model ID to use for chat requests.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                } else {
-                    TextField("Agent ID", text: $agentId, prompt: Text("main"))
-                        .textFieldStyle(.roundedBorder)
-                    Text("The OpenClaw agent to chat with. Note: OpenClaw does not support sending images.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
             }
         }
         .formStyle(.grouped)
