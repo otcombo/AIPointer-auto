@@ -13,6 +13,8 @@ struct ChatPanel: View {
     var onRemoveAttachment: ((Int) -> Void)? = nil
     var onScreenshot: (() -> Void)? = nil
 
+    @State private var isHoveringInput = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Response area
@@ -69,7 +71,7 @@ struct ChatPanel: View {
                     .padding(.horizontal, 10)
             }
 
-            // Input field with camera button
+            // Input field with screenshot button (visible on hover)
             HStack(spacing: 4) {
                 AppKitTextField(
                     text: $inputText,
@@ -80,17 +82,23 @@ struct ChatPanel: View {
                     autoFocus: !(isThinking || isStreaming)
                 )
 
-                if let onScreenshot = onScreenshot, !(isThinking || isStreaming) {
+                if let onScreenshot = onScreenshot, !(isThinking || isStreaming), isHoveringInput {
                     Button(action: onScreenshot) {
-                        Image(systemName: "camera")
-                            .font(.system(size: 12))
+                        Image(systemName: "plus.viewfinder")
+                            .font(.system(size: 13))
                             .foregroundColor(.white.opacity(0.5))
                     }
                     .buttonStyle(.plain)
+                    .transition(.opacity)
                 }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
+            .onHover { hovering in
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isHoveringInput = hovering
+                }
+            }
         }
         .frame(minWidth: 200, maxWidth: 440)
     }

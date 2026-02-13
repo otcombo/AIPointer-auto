@@ -22,6 +22,8 @@ struct InputBar: View {
     var onCancel: () -> Void
     var onScreenshot: (() -> Void)? = nil
 
+    @State private var isHovering = false
+
     private var barWidth: CGFloat {
         if text.isEmpty { return 60 }
         let font = NSFont.systemFont(ofSize: 12, weight: .medium)
@@ -38,14 +40,15 @@ struct InputBar: View {
                 onCancel: onCancel
             )
 
-            // Camera button
-            if let onScreenshot = onScreenshot {
+            // Screenshot button — visible on hover only
+            if let onScreenshot = onScreenshot, isHovering {
                 Button(action: onScreenshot) {
-                    Image(systemName: "camera")
-                        .font(.system(size: 12))
+                    Image(systemName: "plus.viewfinder")
+                        .font(.system(size: 13))
                         .foregroundColor(.white.opacity(0.5))
                 }
                 .buttonStyle(.plain)
+                .transition(.opacity)
                 .onHover { hovering in
                     if hovering {
                         NSCursor.pointingHand.push()
@@ -57,6 +60,11 @@ struct InputBar: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovering = hovering
+            }
+        }
     }
 }
 
