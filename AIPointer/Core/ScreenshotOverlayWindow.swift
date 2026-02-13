@@ -122,4 +122,8 @@ class ScreenshotSelectionNSView: NSView {
 
     /// Allow the first click to start a drag without requiring window activation.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .crosshair)
+    }
 }
