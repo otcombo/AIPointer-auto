@@ -339,14 +339,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 // - Max 1568px per side (Anthropic's vision limit; larger images are
                 //   downscaled server-side, wasting TTFR without improving quality).
                 // - Min 200px shortest side (below this, vision accuracy degrades).
+                //   If aspect ratio is too extreme, max takes priority over min.
                 let maxDim: CGFloat = 1568
                 let minDim: CGFloat = 200
-                let downScale = min(maxDim / region.rect.width, maxDim / region.rect.height, 1.0)
-                let shortSide = min(region.rect.width, region.rect.height) * downScale
-                let upScale = shortSide < minDim ? minDim / shortSide : 1.0
-                let finalScale = downScale * upScale
-                config.width = max(Int(region.rect.width * finalScale), Int(minDim))
-                config.height = max(Int(region.rect.height * finalScale), Int(minDim))
+                var outW = region.rect.width
+                var outH = region.rect.height
+                // Step 1: Downscale so neither side exceeds maxDim
+                let downScale = min(maxDim / outW, maxDim / outH, 1.0)
+                outW *= downScale; outH *= downScale
+                // Step 2: Upscale so shortest side reaches minDim (if possible
+                // without exceeding maxDim on the other side)
+                let shortSide = min(outW, outH)
+                if shortSide < minDim {
+                    let maxUpScale = min(maxDim / outW, maxDim / outH)
+                    let upScale = min(minDim / shortSide, maxUpScale)
+                    outW *= upScale; outH *= upScale
+                }
+                config.width = Int(outW)
+                config.height = Int(outH)
                 config.showsCursor = false
                 config.captureResolution = .best
 
