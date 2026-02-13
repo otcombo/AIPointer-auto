@@ -5,6 +5,20 @@ class PointerViewModel: ObservableObject {
     @Published var state: PointerState = .idle
     @Published var inputText = ""
     @Published var attachedImages: [SelectedRegion] = []
+    /// Expansion direction — computed dynamically by SwiftUI based on current content size.
+    @Published var expandsRight: Bool = true
+    @Published var expandsDown: Bool = true
+
+    /// Mouse position and screen bounds captured at expansion time.
+    var expansionMouseX: CGFloat = 0
+    var expansionMouseY: CGFloat = 0
+    var expansionScreenMinX: CGFloat = 0
+    var expansionScreenMaxX: CGFloat = 0
+    var expansionScreenMinY: CGFloat = 0
+    var expansionScreenMaxY: CGFloat = 0
+
+    /// Called by SwiftUI when expansion direction changes — repositions the panel.
+    var onExpansionDirectionChanged: (() -> Void)?
 
     private let apiService = OpenClawService()
     private var conversationId: String?

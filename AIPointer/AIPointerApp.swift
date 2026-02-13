@@ -126,11 +126,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             Task { await self?.startScreenshotMode() }
         }
 
+        // Reposition panel when SwiftUI detects expansion direction should change
+        viewModel.onExpansionDirectionChanged = { [weak self] in
+            guard let self else { return }
+            self.overlayPanel.repositionForDirection(
+                right: self.viewModel.expandsRight,
+                down: self.viewModel.expandsDown
+            )
+        }
+
         // React to every state change
         viewModel.onStateChanged = { [weak self] state in
             guard let self, self.isEnabled else { return }
             self.isFollowingMouse = !state.isFixed
             self.overlayPanel.updateForState(state)
+
+            // Sync expansion info from panel to viewModel for SwiftUI
+            self.viewModel.expansionMouseX = self.overlayPanel.expansionMousePosition.x
+            self.viewModel.expansionMouseY = self.overlayPanel.expansionMousePosition.y
+            self.viewModel.expansionScreenMinX = self.overlayPanel.expansionScreenBounds.minX
+            self.viewModel.expansionScreenMaxX = self.overlayPanel.expansionScreenBounds.maxX
+            self.viewModel.expansionScreenMinY = self.overlayPanel.expansionScreenBounds.minY
+            self.viewModel.expansionScreenMaxY = self.overlayPanel.expansionScreenBounds.maxY
+            self.viewModel.expandsRight = self.overlayPanel.expandsRight
+            self.viewModel.expandsDown = self.overlayPanel.expandsDown
 
             switch state {
             case .idle:
@@ -158,9 +177,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                 }
 
-                if state.isFixed {
-                    self.overlayPanel.clampToScreen()
-                }
+                // No clampToScreen needed — snapToMouse handles edge detection
             }
         }
 

@@ -42,12 +42,35 @@ struct PointerRootView: View {
         }
     }
 
+    // MARK: - Dynamic expansion direction
+
+    /// Whether content should expand right, based on current width and screen space.
+    private var shouldExpandRight: Bool {
+        let mouseX = viewModel.expansionMouseX
+        let maxX = viewModel.expansionScreenMaxX
+        let padding: CGFloat = 14
+        return (mouseX + shapeWidth + padding) <= maxX
+    }
+
+    /// Whether content should expand down, based on screen space (checked once, using max height).
+    private var shouldExpandDown: Bool {
+        viewModel.expandsDown
+    }
+
+    /// The overlay alignment based on current expansion direction.
+    private var overlayAlignment: Alignment {
+        switch (shouldExpandRight, shouldExpandDown) {
+        case (true, true):   return .topLeading
+        case (false, true):  return .topTrailing
+        case (true, false):  return .bottomLeading
+        case (false, false): return .bottomTrailing
+        }
+    }
+
     var body: some View {
-        // Color.clear fills the panel; overlay anchors shape to top-left.
-        // This guarantees expansion goes right+down from the hotspot.
         Color.clear
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .overlay(alignment: .topLeading) {
+            .overlay(alignment: overlayAlignment) {
                 ZStack(alignment: .topLeading) {
                     switch viewModel.state {
                     case .idle:
@@ -121,6 +144,10 @@ struct PointerRootView: View {
                 )
                 .overlay(PointerShape(radius: 12).stroke(Color.white, lineWidth: 2))
                 .padding(14) // Offset from panel edge = shadow padding
+            }
+            .onChange(of: shouldExpandRight) { _, newValue in
+                viewModel.expandsRight = newValue
+                viewModel.onExpansionDirectionChanged?()
             }
             .animation(
                 viewModel.state == .idle

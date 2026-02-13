@@ -87,20 +87,61 @@ class OverlayPanel: NSPanel {
     /// Timer driving the spring-based collapse animation.
     private var collapseTimer: Timer?
 
-    /// Instantly position the frame so the hotspot (top-left of content) is at `lastMousePosition`.
+    /// Whether content currently expands right/down — drives panel positioning.
+    private(set) var expandsRight: Bool = true
+    private(set) var expandsDown: Bool = true
+
+    /// Mouse position captured at expansion time.
+    private(set) var expansionMousePosition: NSPoint = .zero
+    /// Screen visible frame captured at expansion time.
+    private(set) var expansionScreenBounds: NSRect = .zero
+
+    /// Instantly position the frame so the hotspot is at `lastMousePosition`.
+    /// Panel is always max size; SwiftUI handles visual content positioning.
     private func snapToMouse(width w: CGFloat, height h: CGFloat) {
         collapseTimer?.invalidate()
         collapseTimer = nil
 
         let size = paddedSize(w, h)
         let p = Self.shadowPadding
-        let origin = NSPoint(
-            x: lastMousePosition.x - p,
-            y: lastMousePosition.y - size.height + p
-        )
+
+        // Capture mouse position and screen bounds for dynamic alignment
+        expansionMousePosition = lastMousePosition
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(lastMousePosition) })
+                     ?? NSScreen.main
+        expansionScreenBounds = screen?.visibleFrame ?? .zero
+
+        // Initial direction based on available space vs initial content width (~110px input)
+        // SwiftUI will dynamically re-evaluate as content grows
+        expandsRight = (lastMousePosition.x + 110 + p) <= expansionScreenBounds.maxX
+        expandsDown = (lastMousePosition.y - h - p) >= expansionScreenBounds.minY
+
+        positionPanel(size: size)
+    }
+
+    /// Reposition the panel based on current expansion direction.
+    /// Called when SwiftUI detects the direction should change.
+    func repositionForDirection(right: Bool, down: Bool) {
+        expandsRight = right
+        expandsDown = down
+        let size = frame.size
+        positionPanel(size: size)
+    }
+
+    private func positionPanel(size: NSSize) {
+        let p = Self.shadowPadding
+        let mouse = expansionMousePosition
+
+        let originX = expandsRight
+            ? mouse.x - p
+            : mouse.x - size.width + p
+        let originY = expandsDown
+            ? mouse.y - size.height + p
+            : mouse.y - p
+
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        setFrame(NSRect(origin: origin, size: size), display: false)
+        setFrame(NSRect(origin: NSPoint(x: originX, y: originY), size: size), display: false)
         CATransaction.commit()
     }
 
