@@ -1,13 +1,14 @@
-// swift-tools-version: 5.10
+// swift-tools-version: 6.0
 import PackageDescription
 
 let package = Package(
     name: "AIPointer",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v15)],
     targets: [
         .executableTarget(
             name: "AIPointer",
-            path: "AIPointer"
+            path: "AIPointer",
+            swiftSettings: [.swiftLanguageMode(.v5)]
         )
     ]
 )

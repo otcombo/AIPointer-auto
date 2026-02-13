@@ -1,6 +1,7 @@
 import SwiftUI
 import Cocoa
 import ObjectiveC
+import ScreenCaptureKit
 
 @main
 struct AIPointerApp: App {
@@ -124,7 +125,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Connect screenshot request (from camera button in input mode)
         viewModel.onScreenshotRequested = { [weak self] in
             self?.screenshotEnteredFromIdle = false
-            self?.startScreenshotMode()
+            Task { await self?.startScreenshotMode() }
         }
 
         // React to every state change
@@ -229,11 +230,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // From idle, prepare input state silently and go straight to screenshot
             screenshotEnteredFromIdle = true
             viewModel.prepareForScreenshot()
-            startScreenshotMode()
+            Task { await startScreenshotMode() }
         case .input:
             // Already in input mode — trigger screenshot (same as camera button)
             screenshotEnteredFromIdle = false
-            startScreenshotMode()
+            Task { await startScreenshotMode() }
         default:
             // thinking/responding/response — ignore
             break
@@ -242,9 +243,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Screenshot Mode
 
-    private func startScreenshotMode() {
+    private func startScreenshotMode() async {
         // Check Screen Recording permission
-        guard ScreenRecordingPermission.promptIfNeeded() else { return }
+        guard await ScreenRecordingPermission.promptIfNeeded() else { return }
 
         // Save panel position so we can restore it on cancel
         panelFrameBeforeScreenshot = overlayPanel.frame
@@ -294,21 +295,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSCursor.pop()
         NSCursor.arrow.set()
 
-        // Brief delay to ensure windows are off-screen before capture
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self else { return }
+        // Brief delay to ensure windows are off-screen, then capture via ScreenCaptureKit
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(100))
+
+            // Query available displays once
+            let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            let displays = content?.displays ?? []
 
             // Capture each region
             var capturedRegions: [SelectedRegion] = []
             for region in regions {
-                if let cgImage = CGWindowListCreateImage(
-                    region.rect,
-                    .optionOnScreenOnly,
-                    kCGNullWindowID,
-                    [.bestResolution]
+                guard let display = displays.first(where: { $0.displayID == region.displayID })
+                        ?? displays.first else { continue }
+
+                let filter = SCContentFilter(display: display, excludingWindows: [])
+                let config = SCStreamConfiguration()
+                config.sourceRect = region.rect
+                config.width = Int(region.rect.width) * 2
+                config.height = Int(region.rect.height) * 2
+                config.showsCursor = false
+                config.captureResolution = .best
+
+                if let cgImage = try? await SCScreenshotManager.captureImage(
+                    contentFilter: filter,
+                    configuration: config
                 ) {
                     let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-                    // Debug: save to desktop and log sizes
                     print("[Screenshot] region=\(region.rect) cgImage=\(cgImage.width)x\(cgImage.height)")
                     if let b64 = OpenClawService.toBase64PNG(nsImage) {
                         print("[Screenshot] base64 length=\(b64.count) chars (\(b64.count * 3 / 4 / 1024)KB)")
@@ -344,11 +357,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             // Activate and focus the text field directly (don't go through
             // onStateChanged which would race with a delayed hostingView focus)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                NSApp.activate(ignoringOtherApps: true)
-                self.overlayPanel.makeKeyAndOrderFront(nil)
-                self.focusTextField()
-            }
+            try? await Task.sleep(for: .milliseconds(50))
+            NSApp.activate(ignoringOtherApps: true)
+            self.overlayPanel.makeKeyAndOrderFront(nil)
+            self.focusTextField()
         }
     }
 
