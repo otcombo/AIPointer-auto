@@ -111,10 +111,13 @@ class OverlayPanel: NSPanel {
                      ?? NSScreen.main
         expansionScreenBounds = screen?.visibleFrame ?? .zero
 
-        // Initial direction based on available space vs initial content width (~110px input)
-        // SwiftUI will dynamically re-evaluate as content grows
+        // Initial direction based on available space vs initial content size.
+        // Use small initial height (~60px for input bar) instead of max panel height,
+        // since the panel starts small and grows during conversation.
+        // SwiftUI dynamically re-evaluates horizontal direction as content grows.
+        let initialContentHeight: CGFloat = 60
         expandsRight = (lastMousePosition.x + 110 + p) <= expansionScreenBounds.maxX
-        expandsDown = (lastMousePosition.y - h - p) >= expansionScreenBounds.minY
+        expandsDown = (lastMousePosition.y - initialContentHeight - p) >= expansionScreenBounds.minY
 
         positionPanel(size: size)
     }
