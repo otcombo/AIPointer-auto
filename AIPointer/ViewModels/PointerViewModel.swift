@@ -5,6 +5,14 @@ class PointerViewModel: ObservableObject {
     @Published var state: PointerState = .idle
     @Published var inputText = ""
     @Published var attachedImages: [SelectedRegion] = []
+
+    // Skill completion
+    @Published var showSkillCompletion = false
+    @Published var filteredSkills: [InstalledSkillsProvider.Skill] = []
+    @Published var skillCompletionIndex: Int = 0
+    private var installedSkills: [InstalledSkillsProvider.Skill] = []
+    /// The selected skill to inject as context on send.
+    @Published var selectedSkill: InstalledSkillsProvider.Skill?
     /// Expansion direction — computed dynamically by SwiftUI based on current content size.
     @Published var expandsRight: Bool = true
     @Published var expandsDown: Bool = true
@@ -36,6 +44,61 @@ class PointerViewModel: ObservableObject {
 
     func configureAPI(baseURL: String) {
         apiService.configure(baseURL: baseURL)
+        installedSkills = InstalledSkillsProvider.load()
+    }
+
+    // MARK: - Skill Completion
+
+    func updateSkillCompletion() {
+        let text = inputText
+        // Check if text starts with "/" and we're in input state
+        guard case .input = state, text.hasPrefix("/") else {
+            showSkillCompletion = false
+            filteredSkills = []
+            skillCompletionIndex = 0
+            return
+        }
+
+        // Don't show completion if a skill was already selected (text is "/skill rest of msg")
+        if selectedSkill != nil {
+            showSkillCompletion = false
+            return
+        }
+
+        let query = String(text.dropFirst()) // remove "/"
+        // If query contains a space, user has typed past the skill name — hide
+        if query.contains(" ") {
+            showSkillCompletion = false
+            return
+        }
+
+        filteredSkills = InstalledSkillsProvider.filter(installedSkills, query: query)
+        showSkillCompletion = !filteredSkills.isEmpty
+        skillCompletionIndex = max(0, min(skillCompletionIndex, filteredSkills.count - 1))
+    }
+
+    func selectSkill(_ skill: InstalledSkillsProvider.Skill) {
+        selectedSkill = skill
+        inputText = "/\(skill.name) "
+        showSkillCompletion = false
+        filteredSkills = []
+        skillCompletionIndex = 0
+    }
+
+    func skillCompletionMoveUp() {
+        guard showSkillCompletion, !filteredSkills.isEmpty else { return }
+        skillCompletionIndex = (skillCompletionIndex - 1 + filteredSkills.count) % filteredSkills.count
+    }
+
+    func skillCompletionMoveDown() {
+        guard showSkillCompletion, !filteredSkills.isEmpty else { return }
+        skillCompletionIndex = (skillCompletionIndex + 1) % filteredSkills.count
+    }
+
+    func skillCompletionConfirm() -> Bool {
+        guard showSkillCompletion, !filteredSkills.isEmpty else { return false }
+        selectSkill(filteredSkills[skillCompletionIndex])
+        return true
     }
 
     func onFnPress() {
@@ -111,6 +174,22 @@ class PointerViewModel: ObservableObject {
             messageText = "Please help me with this."
         } else {
             messageText = text
+        }
+
+        // Strip /skill prefix and inject skill context
+        if let skill = selectedSkill {
+            let prefix = "/\(skill.name) "
+            if messageText.hasPrefix(prefix) {
+                messageText = String(messageText.dropFirst(prefix.count))
+            } else if messageText.hasPrefix("/\(skill.name)") {
+                messageText = String(messageText.dropFirst("/\(skill.name)".count))
+            }
+            messageText = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if messageText.isEmpty {
+                messageText = "Help me with this skill."
+            }
+            messageText = "[使用 skill: \(skill.name)] \(messageText)"
+            selectedSkill = nil
         }
 
         // Prepend behavior context if present
@@ -208,6 +287,10 @@ class PointerViewModel: ObservableObject {
         suggestionDismissTimer?.invalidate()
         suggestionDismissTimer = nil
         pendingBehaviorContext = nil
+        selectedSkill = nil
+        showSkillCompletion = false
+        filteredSkills = []
+        skillCompletionIndex = 0
         state = .idle
         inputText = ""
         attachedImages = []

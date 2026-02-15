@@ -54,6 +54,9 @@ struct AppKitTextField: NSViewRepresentable {
     var placeholder: String = ""
     var onSubmit: () -> Void = {}
     var onCancel: () -> Void = {}
+    var onUpArrow: (() -> Void)?
+    var onDownArrow: (() -> Void)?
+    var onTab: (() -> Bool)?    // returns true if handled
     var isDisabled: Bool = false
     var autoFocus: Bool = true
 
@@ -108,12 +111,29 @@ struct AppKitTextField: NSViewRepresentable {
         func control(_ control: NSControl, textView: NSTextView,
                      doCommandBy commandSelector: Selector) -> Bool {
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                // If tab handler exists and would handle it (skill completion confirm), do that first
+                if let onTab = parent.onTab, onTab() {
+                    return true
+                }
                 parent.onSubmit()
                 return true
             }
             if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
                 parent.onCancel()
                 return true
+            }
+            if commandSelector == #selector(NSResponder.moveUp(_:)) {
+                parent.onUpArrow?()
+                return true
+            }
+            if commandSelector == #selector(NSResponder.moveDown(_:)) {
+                parent.onDownArrow?()
+                return true
+            }
+            if commandSelector == #selector(NSResponder.insertTab(_:)) {
+                if let onTab = parent.onTab, onTab() {
+                    return true
+                }
             }
             return false
         }

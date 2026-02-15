@@ -39,7 +39,8 @@ struct PointerRootView: View {
         case .codeReady: return codeReadyWidth
         case .input:
             let contextWidth: CGFloat = viewModel.pendingBehaviorContext != nil ? 300 : 0
-            let contentWidth = max(inputBarWidth, thumbnailStripWidth, contextWidth)
+            let skillWidth: CGFloat = viewModel.showSkillCompletion ? 360 : 0
+            let contentWidth = max(inputBarWidth, thumbnailStripWidth, contextWidth, skillWidth)
             return min(contentWidth, 440)
         case .thinking, .responding, .response: return 440
         }
@@ -92,12 +93,22 @@ struct PointerRootView: View {
                         VStack(alignment: .leading, spacing: 0) {
                             // Behavior context bar
                             if let context = viewModel.pendingBehaviorContext {
-                                ScrollView {
-                                    BehaviorContextView(text: context)
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 8)
-                                }
-                                .frame(maxHeight: 200)
+                                BehaviorContextView(text: context)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 8)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Rectangle()
+                                    .fill(Color.white.opacity(0.1))
+                                    .frame(height: 1)
+                                    .padding(.horizontal, 10)
+                            }
+                            // Skill completion popup
+                            if viewModel.showSkillCompletion {
+                                SkillCompletionView(
+                                    skills: viewModel.filteredSkills,
+                                    selectedIndex: viewModel.skillCompletionIndex,
+                                    onSelect: { skill in viewModel.selectSkill(skill) }
+                                )
                                 Rectangle()
                                     .fill(Color.white.opacity(0.1))
                                     .frame(height: 1)
@@ -118,8 +129,14 @@ struct PointerRootView: View {
                                 text: $viewModel.inputText,
                                 onSubmit: { viewModel.send() },
                                 onCancel: { viewModel.dismiss() },
-                                onScreenshot: { viewModel.requestScreenshot() }
+                                onScreenshot: { viewModel.requestScreenshot() },
+                                onUpArrow: { viewModel.skillCompletionMoveUp() },
+                                onDownArrow: { viewModel.skillCompletionMoveDown() },
+                                onTab: { viewModel.skillCompletionConfirm() }
                             )
+                        }
+                        .onChange(of: viewModel.inputText) { _, _ in
+                            viewModel.updateSkillCompletion()
                         }
                     case .thinking:
                         ChatPanel(

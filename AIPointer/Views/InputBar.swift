@@ -21,6 +21,9 @@ struct InputBar: View {
     var onSubmit: () -> Void
     var onCancel: () -> Void
     var onScreenshot: (() -> Void)? = nil
+    var onUpArrow: (() -> Void)? = nil
+    var onDownArrow: (() -> Void)? = nil
+    var onTab: (() -> Bool)? = nil
 
     @State private var isHovering = false
     @State private var isHoveringIcon = false
@@ -38,7 +41,10 @@ struct InputBar: View {
             AppKitTextField(
                 text: $text,
                 onSubmit: onSubmit,
-                onCancel: onCancel
+                onCancel: onCancel,
+                onUpArrow: onUpArrow,
+                onDownArrow: onDownArrow,
+                onTab: onTab
             )
 
             // Screenshot button — visible on hover only
