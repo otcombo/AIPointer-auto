@@ -70,13 +70,25 @@ class BehaviorSensingService {
 
         let events = buffer.snapshot(lastSeconds: 180) // 3-minute window
         let compressed = compressEvents(events, maxCount: 30)
-        let prompt = buildPrompt(events: compressed)
+        let keywords = extractKeywords(from: compressed)
 
         Task {
             defer {
                 self.isAnalyzing = false
                 self.lastAnalysisTime = Date()
             }
+
+            // Search for relevant skills (non-blocking, 2s timeout)
+            var skills: [(name: String, description: String)] = []
+            if !keywords.isEmpty {
+                print("[BehaviorSensing] Keywords: \(keywords.joined(separator: ", "))")
+                skills = await searchSkills(keywords: keywords)
+                if !skills.isEmpty {
+                    print("[BehaviorSensing] Found skills: \(skills.map { $0.name }.joined(separator: ", "))")
+                }
+            }
+
+            let prompt = buildPrompt(events: compressed, skills: skills)
 
             do {
                 var fullResponse = ""
@@ -122,7 +134,7 @@ class BehaviorSensingService {
         return result
     }
 
-    private func buildPrompt(events: [BehaviorEvent]) -> String {
+    private func buildPrompt(events: [BehaviorEvent], skills: [(name: String, description: String)] = []) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
 
@@ -130,7 +142,7 @@ class BehaviorSensingService {
         lines.append("You are analyzing a user's desktop behavior to detect repetitive patterns and offer proactive help.")
         lines.append("Below is a timeline of recent user actions. Analyze for repetitive patterns.")
         lines.append("")
-        lines.append("Timeline:")
+        lines.append("--- Timeline ---")
 
         for event in events {
             let time = formatter.string(from: event.timestamp)
@@ -139,6 +151,21 @@ class BehaviorSensingService {
                 line += " (\(ctx))"
             }
             lines.append(line)
+        }
+
+        if !skills.isEmpty {
+            lines.append("")
+            lines.append("--- Related Skills (from ClawHub) ---")
+            for skill in skills {
+                lines.append("- \(skill.name): \(skill.description)")
+            }
+        }
+
+        lines.append("")
+        lines.append("--- Your capabilities ---")
+        lines.append("You can: read/write files, run scripts (Python/Node/Shell), operate browsers, read email, send messages, extract web content, search the web.")
+        if !skills.isEmpty {
+            lines.append("If a listed Skill above is relevant, recommend it in your suggestion. Otherwise, suggest based on your own capabilities.")
         }
 
         lines.append("")
@@ -156,6 +183,120 @@ class BehaviorSensingService {
 
         return lines.joined(separator: "\n")
     }
+
+    // MARK: - Skill Search
+
+    private static let appKeywords = ["excel", "chrome", "safari", "finder", "mail", "slack",
+                                       "keynote", "pages", "numbers", "vscode", "xcode",
+                                       "notion", "figma", "sketch", "terminal", "iterm"]
+
+    private func extractKeywords(from events: [BehaviorEvent]) -> [String] {
+        var keywords = Set<String>()
+
+        for event in events {
+            switch event.kind {
+            case .appSwitch, .windowTitle, .copy, .click, .dwell:
+                let detail = event.detail.lowercased()
+                let context = (event.context ?? "").lowercased()
+                for app in Self.appKeywords {
+                    if detail.contains(app) || context.contains(app) {
+                        keywords.insert(app)
+                    }
+                }
+
+            case .clipboard:
+                let content = event.detail
+                if content.contains("http://") || content.contains("https://") {
+                    keywords.insert("web")
+                }
+                if content.contains("\t") || content.range(of: #"(\w+,){2,}"#, options: .regularExpression) != nil {
+                    keywords.insert("table")
+                }
+
+            case .tabSwitch:
+                keywords.insert("browser")
+
+            case .fileOp:
+                keywords.insert("file")
+            }
+        }
+
+        return Array(keywords.prefix(3))
+    }
+
+    private func searchSkills(keywords: [String]) async -> [(name: String, description: String)] {
+        guard !keywords.isEmpty else { return [] }
+
+        let query = keywords.joined(separator: " ")
+
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+                process.arguments = ["clawhub", "search", "--limit", "5", query]
+
+                let pipe = Pipe()
+                process.standardOutput = pipe
+                process.standardError = Pipe()
+
+                // 2s timeout
+                let timer = DispatchSource.makeTimerSource()
+                timer.schedule(deadline: .now() + 2.0)
+                timer.setEventHandler {
+                    process.terminate()
+                }
+                timer.resume()
+
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+                    timer.cancel()
+
+                    guard process.terminationStatus == 0 else {
+                        continuation.resume(returning: [])
+                        return
+                    }
+
+                    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                    guard let output = String(data: data, encoding: .utf8) else {
+                        continuation.resume(returning: [])
+                        return
+                    }
+
+                    let results = self.parseClawHubOutput(output)
+                    continuation.resume(returning: results)
+                } catch {
+                    timer.cancel()
+                    print("[BehaviorSensing] Skill search failed: \(error)")
+                    continuation.resume(returning: [])
+                }
+            }
+        }
+    }
+
+    private func parseClawHubOutput(_ output: String) -> [(name: String, description: String)] {
+        var results: [(name: String, description: String)] = []
+
+        for line in output.split(separator: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty, !trimmed.hasPrefix("-") else { continue }
+
+            // Format: skill-name v1.0.0  Description text here  (score)
+            let components = trimmed.components(separatedBy: "  ").filter { !$0.isEmpty }
+            guard components.count >= 2 else { continue }
+
+            let namePart = components[0].components(separatedBy: " ").first ?? ""
+            let descPart = components[1].components(separatedBy: "(").first?
+                .trimmingCharacters(in: .whitespaces) ?? ""
+
+            guard !namePart.isEmpty else { continue }
+            results.append((name: namePart, description: descPart))
+        }
+
+        return results
+    }
+
+    // MARK: - Response Parsing
 
     private func parseAnalysis(_ text: String) -> BehaviorAnalysis? {
         // Strip markdown code block markers (LLMs commonly wrap JSON in ```json ... ```)

@@ -166,6 +166,10 @@ class EventTapManager {
             return false
 
         case .keyDown:
+            // Suppress synthetic keyDown near fn press (emoji picker trigger)
+            if suppressFnKey && msSinceLastFn() < 300 {
+                return true
+            }
             // Detect Cmd+C (keyCode 8 with command flag)
             let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
             if keyCode == 8 && event.flags.contains(.maskCommand) {
