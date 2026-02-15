@@ -431,11 +431,28 @@ class FocusDetectionService {
         Keep fields concise. User must understand at a glance.
         Character limits: theme ≤ 20 chars, observation ≤ 100 chars, insight ≤ 60 chars, offer ≤ 150 chars.
 
-        insight must use plain everyday language: say what the user is doing directly.
-        ❌ "用户正在进行多维度的行业横向对比研究"
+        All fields MUST NOT contain psychological analysis, emotional judgment, or motive speculation. You are a tool, not a therapist.
+        Only describe WHAT the user is doing, never WHY they are doing it or HOW they feel.
+
+        theme: Only write topic keywords, no adjectives or modifiers.
+        ❌ "Compulsive portfolio monitoring crisis"  ❌ "强迫性股票检查焦虑"
+        ✅ "美股行情"  ✅ "Stock prices"
+
+        observation: Only objective behavior facts (what was opened, how many switches, what was copied).
+        ❌ "User maintained compulsive checking cycle across multiple platforms"
+        ✅ "1分钟内在Yahoo和Robinhood间切换7次，浏览NFLX/TSLA/BTC/AAPL"
+
+        insight: Plain language, what the user is doing. No subjective judgment.
+        ❌ "用户正在进行多维度的行业横向对比研究"  ❌ "强迫检查完全复发"
         ✅ "在对比茅台和五粮液的股价"
         ❌ "User is exploring cross-platform investment opportunities"
         ✅ "Comparing Moutai vs Wuliangye stock prices"
+
+        offer: Only say what you can do. Do not comment on user behavior.
+        ❌ "You've been in this exhausting cycle for hours"
+        ✅ "可以帮你自动监控这6只股票的价格变动"
+
+        Each field focuses on ONE thing only. If the user is doing two unrelated things, only report the most prominent topic within the detection window.
 
         Installed skill can help:
         {"detected":true,"confidence":"high/medium","theme":"≤20 chars","observation":"≤100 chars","insight":"≤60 chars","offer":"≤80 chars","installedSkill":"skill-name"}
