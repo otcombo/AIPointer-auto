@@ -90,7 +90,8 @@ struct ChatPanel: View {
                 }
             }
         }
-        .padding(14)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
         .frame(minWidth: 200, maxWidth: 440)
     }
 }

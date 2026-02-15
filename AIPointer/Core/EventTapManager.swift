@@ -5,6 +5,8 @@ class EventTapManager {
     var onMouseMoved: ((NSPoint) -> Void)?
     var onFnShortPress: (() -> Void)?   // fn 松开时触发（短按）
     var onFnLongPress: (() -> Void)?    // 长按超过阈值时触发
+    var onMouseDown: ((CGPoint) -> Void)?  // left mouse down (Quartz coords)
+    var onCmdC: (() -> Void)?              // Cmd+C detected
 
     /// When true, fn key events are consumed and won't trigger the system emoji picker.
     var suppressFnKey = true
@@ -113,7 +115,11 @@ class EventTapManager {
             }
             return false
 
-        case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
+        case .leftMouseDown:
+            onMouseDown?(event.location)
+            return false
+
+        case .leftMouseUp, .rightMouseDown, .rightMouseUp,
              .otherMouseDown, .otherMouseUp, .otherMouseDragged, .scrollWheel:
             return false
 
@@ -159,6 +165,14 @@ class EventTapManager {
             }
             return false
 
+        case .keyDown:
+            // Detect Cmd+C (keyCode 8 with command flag)
+            let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+            if keyCode == 8 && event.flags.contains(.maskCommand) {
+                onCmdC?()
+            }
+            return false
+
         default:
             // --- Suppress synthetic keyboard & system events near fn press ---
             // When fn/Globe is pressed, macOS generates:
@@ -172,6 +186,14 @@ class EventTapManager {
             let isKeyboardOrSystem = rawType == 10 || rawType == 11 || rawType == 14
             if isKeyboardOrSystem && msSinceLastFn() < 300 {
                 return true
+            }
+
+            // Detect Cmd+C in synthetic keyDown (rawType 10) not near fn
+            if rawType == 10 {
+                let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+                if keyCode == 8 && event.flags.contains(.maskCommand) {
+                    onCmdC?()
+                }
             }
 
             return false

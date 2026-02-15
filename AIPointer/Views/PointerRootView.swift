@@ -2,6 +2,7 @@ import SwiftUI
 
 struct PointerRootView: View {
     @ObservedObject var viewModel: PointerViewModel
+    @AppStorage("debugMaterial") private var debugMaterial: Int = 13 // default .hudWindow
 
     private var inputBarWidth: CGFloat {
         if viewModel.inputText.isEmpty { return 110 }
@@ -34,9 +35,11 @@ struct PointerRootView: View {
         switch viewModel.state {
         case .idle: return 16
         case .monitoring: return 24
+        case .suggestion: return 24
         case .codeReady: return codeReadyWidth
         case .input:
-            let contentWidth = max(inputBarWidth, thumbnailStripWidth)
+            let contextWidth: CGFloat = viewModel.pendingBehaviorContext != nil ? 300 : 0
+            let contentWidth = max(inputBarWidth, thumbnailStripWidth, contextWidth)
             return min(contentWidth, 440)
         case .thinking, .responding, .response: return 440
         }
@@ -81,10 +84,25 @@ struct PointerRootView: View {
                         Color.clear.frame(width: 16, height: 16)
                     case .monitoring:
                         MonitoringIndicator()
+                    case .suggestion:
+                        SuggestionIndicator()
                     case .codeReady(let code):
                         CodeReadyCursor(code: code)
                     case .input:
                         VStack(alignment: .leading, spacing: 0) {
+                            // Behavior context bar
+                            if let context = viewModel.pendingBehaviorContext {
+                                Text(context)
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.white.opacity(0.7))
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                Rectangle()
+                                    .fill(Color.white.opacity(0.1))
+                                    .frame(height: 1)
+                                    .padding(.horizontal, 10)
+                            }
                             // Attachment preview in input mode
                             if !viewModel.attachedImages.isEmpty {
                                 AttachmentStripView(
@@ -139,10 +157,10 @@ struct PointerRootView: View {
                 .clipShape(PointerShape(radius: shapeRadius))
                 .background(
                     ZStack {
-                        VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
+                        VisualEffectBlur(material: NSVisualEffectView.Material(rawValue: debugMaterial) ?? .sheet, blendingMode: .behindWindow)
                             .clipShape(PointerShape(radius: shapeRadius))
                         PointerShape(radius: shapeRadius)
-                            .fill(Color.black.opacity(viewModel.state.isExpanded ? 0.3 : 0.1))
+                            .fill(Color.black.opacity(viewModel.state.isExpanded ? 0.3 : 0.3))
                     }
                     .shadow(color: .black.opacity(0.25), radius: 3.75, x: 0, y: 3.75)
                 )

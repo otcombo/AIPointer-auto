@@ -23,6 +23,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var viewModel: PointerViewModel!
     private var verificationService: VerificationService!
     private var openClawService: OpenClawService!
+    private var behaviorSensingService: BehaviorSensingService!
     private var settingsWindow: NSWindow?
     private var isEnabled = true
     private var isFollowingMouse = true
@@ -34,6 +35,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var screenshotEnteredFromIdle = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        setbuf(stdout, nil) // Disable stdout buffering for real-time logs
         NSApp.setActivationPolicy(.accessory)
         swizzleCharacterPalette()
         setupMenuBar()
@@ -44,6 +46,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         cursorHider?.restore()
         eventTapManager?.stop()
         verificationService?.stop()
+        behaviorSensingService?.stop()
     }
 
     // MARK: - Setup
@@ -157,7 +160,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.overlayPanel.ignoresMouseEvents = true
                 self.cursorHider.hide()
 
-            case .monitoring, .codeReady:
+            case .monitoring, .codeReady, .suggestion:
                 self.overlayPanel.ignoresMouseEvents = true
                 self.overlayPanel.allowsKeyWindow = false
                 self.cursorHider.hide()
@@ -218,6 +221,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         verificationService.start()
 
+        // Behavior sensing service — passively monitors user actions
+        behaviorSensingService = BehaviorSensingService()
+        behaviorSensingService.openClawService = openClawService
+        behaviorSensingService.onAnalysisResult = { [weak self] analysis in
+            self?.viewModel.updateBehaviorSuggestion(analysis)
+        }
+
+        // Connect EventTapManager callbacks for click and copy
+        eventTapManager.onMouseDown = { [weak self] quartzPoint in
+            self?.behaviorSensingService.monitor.recordClick(at: quartzPoint)
+        }
+        eventTapManager.onCmdC = { [weak self] in
+            self?.behaviorSensingService.monitor.recordCopy()
+        }
+
+        // Apply behavior sensing settings
+        applyBehaviorSensingSettings()
+
         eventTapManager.start()
         cursorHider.hide()
         overlayPanel.orderFrontRegardless()
@@ -233,8 +254,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         openClawService.configure(baseURL: url)
     }
 
+    private func applyBehaviorSensingSettings() {
+        guard let service = behaviorSensingService else { return }
+        let defaults = UserDefaults.standard
+        let enabled = defaults.object(forKey: "behaviorSensingEnabled") as? Bool ?? true
+        let sensitivity = defaults.double(forKey: "behaviorSensitivity")
+        service.sensitivity = sensitivity > 0 ? sensitivity : 1.0
+
+        if enabled && !service.isRunning {
+            service.start()
+            print("[BehaviorSensing] Started (sensitivity=\(service.sensitivity))")
+        } else if !enabled && service.isRunning {
+            service.stop()
+            print("[BehaviorSensing] Stopped")
+        }
+    }
+
     @objc private func settingsChanged() {
         applySettings()
+        applyBehaviorSensingSettings()
     }
 
     // MARK: - Fn Long Press → Screenshot
@@ -511,11 +549,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             cursorHider.hide()
             eventTapManager.start()
             verificationService.start()
+            applyBehaviorSensingSettings()
             overlayPanel.orderFrontRegardless()
         } else {
             cursorHider.restore()
             eventTapManager.stop()
             verificationService.stop()
+            behaviorSensingService?.stop()
             overlayPanel.orderOut(nil)
         }
 

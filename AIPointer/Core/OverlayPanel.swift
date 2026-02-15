@@ -197,7 +197,7 @@ class OverlayPanel: NSPanel {
             allowsKeyWindow = false
             animateCollapse()
 
-        case .monitoring:
+        case .monitoring, .suggestion:
             ignoresMouseEvents = true
             allowsKeyWindow = false
 

@@ -140,7 +140,7 @@ class OpenClawService: NSObject, URLSessionDataDelegate {
 
     /// Stateless single-shot request to OpenClaw.
     /// Does not maintain chat history — each call is independent.
-    func executeCommand(prompt: String) -> AsyncThrowingStream<SSEEvent, Error> {
+    func executeCommand(prompt: String, agentId: String? = nil) -> AsyncThrowingStream<SSEEvent, Error> {
         return AsyncThrowingStream { continuation in
             Task {
                 guard let url = URL(string: "\(baseURL)/v1/chat/completions") else {
@@ -160,9 +160,9 @@ class OpenClawService: NSObject, URLSessionDataDelegate {
                     ["role": "user", "content": prompt]
                 ]
 
-                let agentId = UserDefaults.standard.string(forKey: "agentId") ?? "main"
+                let resolvedAgentId = agentId ?? UserDefaults.standard.string(forKey: "agentId") ?? "main"
                 let body: [String: Any] = [
-                    "model": "openclaw:\(agentId)",
+                    "model": "openclaw:\(resolvedAgentId)",
                     "messages": messages,
                     "stream": true,
                     "user": "aipointer-autoverify"

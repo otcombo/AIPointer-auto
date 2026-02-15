@@ -9,6 +9,10 @@ class PointerViewModel: ObservableObject {
     @Published var expandsRight: Bool = true
     @Published var expandsDown: Bool = true
 
+    /// Behavior sensing: pending context from a suggestion the user accepted with fn press
+    @Published private(set) var pendingBehaviorContext: String?
+    private var suggestionDismissTimer: Timer?
+
     /// Mouse position and screen bounds captured at expansion time.
     var expansionMouseX: CGFloat = 0
     var expansionMouseY: CGFloat = 0
@@ -37,6 +41,16 @@ class PointerViewModel: ObservableObject {
     func onFnPress() {
         switch state {
         case .idle, .monitoring, .codeReady:
+            state = .input
+            inputText = ""
+            attachedImages = []
+            pendingBehaviorContext = nil
+            onStateChanged?(state)
+        case .suggestion(let observation, let suggestion):
+            // Accept suggestion: transition to input with context pre-loaded
+            suggestionDismissTimer?.invalidate()
+            suggestionDismissTimer = nil
+            pendingBehaviorContext = "Observation: \(observation)\nSuggestion: \(suggestion ?? "")"
             state = .input
             inputText = ""
             attachedImages = []
@@ -84,12 +98,26 @@ class PointerViewModel: ObservableObject {
     func send() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasImages = !attachedImages.isEmpty
+        let hasContext = pendingBehaviorContext != nil
 
-        // Need either text or images to send
-        guard !text.isEmpty || hasImages else { return }
+        // Need either text, images, or behavior context to send
+        guard !text.isEmpty || hasImages || hasContext else { return }
 
-        // Build message text: default to asking about screenshots if no text
-        let messageText = text.isEmpty && hasImages ? "请帮我看看这些截图" : text
+        // Build message text
+        var messageText: String
+        if text.isEmpty && hasImages {
+            messageText = "请帮我看看这些截图"
+        } else if text.isEmpty && hasContext {
+            messageText = "Please help me with this."
+        } else {
+            messageText = text
+        }
+
+        // Prepend behavior context if present
+        if let context = pendingBehaviorContext {
+            messageText = "\(context)\n\nUser: \(messageText)"
+            pendingBehaviorContext = nil
+        }
 
         // Build images array with labels
         var images: [(NSImage, String)] = []
@@ -143,10 +171,36 @@ class PointerViewModel: ObservableObject {
         }
     }
 
+    func updateBehaviorSuggestion(_ analysis: BehaviorAnalysis) {
+        // Only show suggestion when in non-interactive states
+        switch state {
+        case .idle, .monitoring, .codeReady:
+            state = .suggestion(observation: analysis.observation, suggestion: analysis.suggestion)
+            onStateChanged?(state)
+
+            // Auto-dismiss after 4 seconds
+            suggestionDismissTimer?.invalidate()
+            suggestionDismissTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: false) { [weak self] _ in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    if case .suggestion = self.state {
+                        self.state = .idle
+                        self.onStateChanged?(self.state)
+                    }
+                }
+            }
+        default:
+            break
+        }
+    }
+
     func dismiss() {
         apiService.cancel()
         currentTask?.cancel()
         currentTask = nil
+        suggestionDismissTimer?.invalidate()
+        suggestionDismissTimer = nil
+        pendingBehaviorContext = nil
         state = .idle
         inputText = ""
         attachedImages = []
@@ -159,7 +213,8 @@ class PointerViewModel: ObservableObject {
     private let debugStates: [PointerState] = [
         .idle,
         .monitoring,
-        .codeReady(code: "583 214")
+        .codeReady(code: "583 214"),
+        .suggestion(observation: "You're switching between Chrome and Excel repeatedly, copying data each time.", suggestion: "I can help you extract and organize that data automatically.")
     ]
     private var debugIndex = 0
 
