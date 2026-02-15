@@ -141,8 +141,19 @@ class FocusDetectionService {
         if result.detected, let keywords = result.searchKeywords, !keywords.isEmpty {
             let communitySkills = await searchClawHub(keywords: keywords)
             if !communitySkills.isEmpty {
-                let skillList = communitySkills.prefix(3).map { "\($0.name): \($0.description)" }.joined(separator: "\n")
-                result.offer = (result.offer ?? "") + "\n\nCommunity Skills:\n" + skillList
+                let skillNames = communitySkills.prefix(3).map { $0.name }.joined(separator: ", ")
+                let skillDetails = communitySkills.prefix(3).map { "\($0.name): \($0.description)" }.joined(separator: "\n")
+                let mergePrompt = """
+                将以下"帮助建议"和"推荐工具"合并为一段自然流畅的话（≤ 150 字符）。
+                像朋友推荐一样说话，不要用列表格式。必须提到工具名。
+
+                帮助建议：\(result.offer ?? "")
+                推荐工具：\(skillDetails)
+
+                直接输出合并后的文本，不要任何其他内容。
+                """
+                let mergedOffer = await callOpenClaw(prompt: mergePrompt)
+                result.offer = mergedOffer ?? (result.offer ?? "") + " 推荐: " + skillNames
             }
         }
 
@@ -418,7 +429,13 @@ class FocusDetectionService {
 
         --- Response format (strict JSON, no other text) ---
         Keep fields concise. User must understand at a glance.
-        Character limits: theme ≤ 20 chars, observation ≤ 100 chars, insight ≤ 60 chars, offer ≤ 80 chars.
+        Character limits: theme ≤ 20 chars, observation ≤ 100 chars, insight ≤ 60 chars, offer ≤ 150 chars.
+
+        insight must use plain everyday language: say what the user is doing directly.
+        ❌ "用户正在进行多维度的行业横向对比研究"
+        ✅ "在对比茅台和五粮液的股价"
+        ❌ "User is exploring cross-platform investment opportunities"
+        ✅ "Comparing Moutai vs Wuliangye stock prices"
 
         Installed skill can help:
         {"detected":true,"confidence":"high/medium","theme":"≤20 chars","observation":"≤100 chars","insight":"≤60 chars","offer":"≤80 chars","installedSkill":"skill-name"}
@@ -433,10 +450,10 @@ class FocusDetectionService {
         {"detected":false}
 
         Example (Chinese):
-        {"detected":true,"confidence":"high","theme":"白酒股票研究","observation":"5分钟内浏览4个白酒股票页面，复制了600519","insight":"在对比茅台和五粮液行情","offer":"可以帮你抓取实时数据做对比表格","searchKeywords":["stock analysis","portfolio tracker"]}
+        {"detected":true,"confidence":"high","theme":"白酒股票研究","observation":"5分钟内浏览4个白酒股票页面，复制了600519","insight":"在对比茅台和五粮液的股价","offer":"可以帮你抓取实时数据做对比表格","searchKeywords":["stock analysis","portfolio tracker"]}
 
         Example (English):
-        {"detected":true,"confidence":"high","theme":"Stock research","observation":"Browsed 4 liquor stock pages in 5 min, copied ticker 600519","insight":"Comparing Moutai vs Wuliangye","offer":"I can pull real-time data and build a comparison table","searchKeywords":["stock analysis","portfolio tracker"]}
+        {"detected":true,"confidence":"high","theme":"Stock research","observation":"Browsed 4 liquor stock pages in 5 min, copied ticker 600519","insight":"Comparing Moutai vs Wuliangye stock prices","offer":"I can pull real-time data and build a comparison table","searchKeywords":["stock analysis","portfolio tracker"]}
         """
     }
 
