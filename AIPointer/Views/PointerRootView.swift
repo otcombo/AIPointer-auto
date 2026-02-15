@@ -160,7 +160,7 @@ struct PointerRootView: View {
                         VisualEffectBlur(material: NSVisualEffectView.Material(rawValue: debugMaterial) ?? .sheet, blendingMode: .behindWindow)
                             .clipShape(PointerShape(radius: shapeRadius))
                         PointerShape(radius: shapeRadius)
-                            .fill(Color.black.opacity(viewModel.state.isExpanded ? 0.3 : 0.3))
+                            .fill(Color.black.opacity(viewModel.state.isExpanded ? 0.15 : 0.15))
                     }
                     .shadow(color: .black.opacity(0.25), radius: 3.75, x: 0, y: 3.75)
                 )
