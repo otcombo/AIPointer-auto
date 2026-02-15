@@ -169,7 +169,11 @@ struct PointerRootView: View {
             }
             .onChange(of: shouldExpandRight) { _, newValue in
                 viewModel.expandsRight = newValue
-                viewModel.onExpansionDirectionChanged?()
+                // Only reposition while expanded; during collapse the panel
+                // drives its own animation and direction flips would fight it.
+                if viewModel.state.isExpanded {
+                    viewModel.onExpansionDirectionChanged?()
+                }
             }
             .animation(
                 viewModel.state == .idle

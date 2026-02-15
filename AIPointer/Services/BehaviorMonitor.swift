@@ -3,6 +3,7 @@ import ApplicationServices
 
 class BehaviorMonitor {
     let buffer: BehaviorBuffer
+    private let axQueue = DispatchQueue(label: "com.aipointer.ax-query", qos: .utility)
 
     private var clipboardTimer: Timer?
     private var dwellTimer: Timer?
@@ -137,13 +138,17 @@ class BehaviorMonitor {
             dwellFrameCount += 1
             if dwellFrameCount >= 3 && !dwellFired {
                 dwellFired = true
-                let axDesc = describeElementAtPosition(pos)
-                buffer.append(BehaviorEvent(
-                    timestamp: Date(),
-                    kind: .dwell,
-                    detail: axDesc,
-                    context: lastActiveApp
-                ))
+                let app = lastActiveApp
+                axQueue.async { [weak self] in
+                    guard let self else { return }
+                    let axDesc = self.describeElementAtPosition(pos)
+                    self.buffer.append(BehaviorEvent(
+                        timestamp: Date(),
+                        kind: .dwell,
+                        detail: axDesc,
+                        context: app
+                    ))
+                }
             }
         } else {
             dwellFrameCount = 0
@@ -156,25 +161,33 @@ class BehaviorMonitor {
     // MARK: - Click (called from EventTapManager)
 
     func recordClick(at quartzPoint: CGPoint) {
-        let axDesc = describeElementAtQuartzPosition(quartzPoint)
-        buffer.append(BehaviorEvent(
-            timestamp: Date(),
-            kind: .click,
-            detail: axDesc,
-            context: lastActiveApp
-        ))
+        let app = lastActiveApp
+        axQueue.async { [weak self] in
+            guard let self else { return }
+            let axDesc = self.describeElementAtQuartzPosition(quartzPoint)
+            self.buffer.append(BehaviorEvent(
+                timestamp: Date(),
+                kind: .click,
+                detail: axDesc,
+                context: app
+            ))
+        }
     }
 
     // MARK: - Copy (called from EventTapManager)
 
     func recordCopy() {
-        let axDesc = describeFocusedElement()
-        buffer.append(BehaviorEvent(
-            timestamp: Date(),
-            kind: .copy,
-            detail: axDesc,
-            context: lastActiveApp
-        ))
+        let app = lastActiveApp
+        axQueue.async { [weak self] in
+            guard let self else { return }
+            let axDesc = self.describeFocusedElement()
+            self.buffer.append(BehaviorEvent(
+                timestamp: Date(),
+                kind: .copy,
+                detail: axDesc,
+                context: app
+            ))
+        }
     }
 
     // MARK: - Accessibility Helpers
