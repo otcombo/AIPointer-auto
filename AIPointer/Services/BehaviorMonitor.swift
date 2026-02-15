@@ -3,12 +3,15 @@ import ApplicationServices
 
 class BehaviorMonitor {
     let buffer: BehaviorBuffer
+    var tabSnapshotCache: TabSnapshotCache?
     private let axQueue = DispatchQueue(label: "com.aipointer.ax-query", qos: .utility)
 
     private var clipboardTimer: Timer?
     private var dwellTimer: Timer?
+    private var titlePollTimer: Timer?
     private var lastClipboardChangeCount: Int = 0
     private var lastActiveApp: String = ""
+    private var lastActiveBundleId: String = ""
     private var lastWindowTitle: String = ""
     private var lastMousePosition: CGPoint = .zero
     private var dwellFrameCount: Int = 0
@@ -18,6 +21,15 @@ class BehaviorMonitor {
         "com.google.Chrome", "com.apple.Safari", "org.mozilla.firefox",
         "com.microsoft.edgemac", "com.brave.Browser", "company.thebrowser.Browser",
         "com.operasoftware.Opera", "com.vivaldi.Vivaldi"
+    ]
+
+    private static let chromeBundleIDs: Set<String> = [
+        "com.google.Chrome", "com.google.Chrome.canary",
+        "org.chromium.Chromium", "com.brave.Browser", "com.microsoft.edgemac"
+    ]
+
+    private static let feishuBundleIDs: Set<String> = [
+        "com.electron.lark", "com.bytedance.lark", "com.larksuite.Feishu"
     ]
 
     init(buffer: BehaviorBuffer) {
@@ -42,6 +54,11 @@ class BehaviorMonitor {
         dwellTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             self?.checkDwell()
         }
+
+        // Window title polling (every 2s) — detects tab switches within the same app
+        titlePollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.checkWindowTitle()
+        }
     }
 
     func stop() {
@@ -50,6 +67,8 @@ class BehaviorMonitor {
         clipboardTimer = nil
         dwellTimer?.invalidate()
         dwellTimer = nil
+        titlePollTimer?.invalidate()
+        titlePollTimer = nil
     }
 
     // MARK: - App Switch
@@ -59,41 +78,125 @@ class BehaviorMonitor {
               let name = app.localizedName else { return }
 
         let previousApp = lastActiveApp
-        let windowTitle = readFocusedWindowTitle()
+        let previousTitle = lastWindowTitle
+        let bundleId = app.bundleIdentifier ?? ""
+        let pid = app.processIdentifier
 
-        if !previousApp.isEmpty && previousApp != name {
-            buffer.append(BehaviorEvent(
-                timestamp: Date(),
-                kind: .appSwitch,
-                detail: "\(previousApp) → \(name)",
-                context: windowTitle
-            ))
-        }
+        // Update main-thread state immediately (app identity is safe to read here)
+        lastActiveApp = name
+        lastActiveBundleId = bundleId
 
-        // Check for tab switch (same app, different window title)
-        if previousApp == name && windowTitle != lastWindowTitle && !windowTitle.isEmpty {
-            let bundleID = app.bundleIdentifier ?? ""
-            if Self.browserBundleIDs.contains(bundleID) {
-                buffer.append(BehaviorEvent(
+        // Move AX query + tab capture off the main thread to avoid deadlocking
+        // when our own settings panel is frontmost.
+        axQueue.async { [weak self] in
+            guard let self else { return }
+            let windowTitle = self.readFocusedWindowTitle()
+
+            DispatchQueue.main.async { [weak self] in
+                self?.lastWindowTitle = windowTitle
+            }
+
+            if !previousApp.isEmpty && previousApp != name {
+                self.buffer.append(BehaviorEvent(
                     timestamp: Date(),
-                    kind: .tabSwitch,
-                    detail: "\(lastWindowTitle) → \(windowTitle)",
+                    kind: .appSwitch,
+                    detail: "\(previousApp) → \(name)",
+                    context: windowTitle
+                ))
+            }
+
+            // Check for tab switch (same app, different window title)
+            if previousApp == name && windowTitle != previousTitle && !windowTitle.isEmpty {
+                if Self.browserBundleIDs.contains(bundleId) {
+                    self.buffer.append(BehaviorEvent(
+                        timestamp: Date(),
+                        kind: .tabSwitch,
+                        detail: "\(previousTitle) → \(windowTitle)",
+                        context: name
+                    ))
+                }
+            }
+
+            if !windowTitle.isEmpty {
+                self.buffer.append(BehaviorEvent(
+                    timestamp: Date(),
+                    kind: .windowTitle,
+                    detail: windowTitle,
                     context: name
                 ))
             }
-        }
 
-        if !windowTitle.isEmpty {
-            buffer.append(BehaviorEvent(
+            // Tab snapshot capture
+            if Self.chromeBundleIDs.contains(bundleId) || Self.feishuBundleIDs.contains(bundleId) {
+                if let tabs = self.captureTabs(bundleId: bundleId, pid: pid) {
+                    self.tabSnapshotCache?.store(appName: name, bundleId: bundleId, tabs: tabs)
+
+                    let tabTitles = tabs.map { $0.title }
+                    let json = (try? JSONSerialization.data(withJSONObject: tabTitles))
+                        .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+                    self.buffer.append(BehaviorEvent(
+                        timestamp: Date(),
+                        kind: .tabSnapshot,
+                        detail: name,
+                        context: json
+                    ))
+                    print("[BehaviorMonitor] Tab snapshot: \(name) (\(tabs.count) tabs)")
+                }
+            }
+        }
+    }
+
+    // MARK: - Window Title Polling (detect in-app tab switches)
+
+    private func checkWindowTitle() {
+        let app = lastActiveApp
+        let bundleId = lastActiveBundleId
+        let previousTitle = lastWindowTitle
+        guard !app.isEmpty else { return }
+
+        // Run AX query off the main thread to avoid deadlocking when our own
+        // settings panel is frontmost (AX hitting our NSHostingView on main).
+        axQueue.async { [weak self] in
+            guard let self else { return }
+            let windowTitle = self.readFocusedWindowTitle()
+            guard !windowTitle.isEmpty, windowTitle != previousTitle else { return }
+
+            DispatchQueue.main.async { [weak self] in
+                self?.lastWindowTitle = windowTitle
+            }
+
+            // Record as tab switch if it's a browser
+            let needsTabCapture: Bool
+            if Self.browserBundleIDs.contains(bundleId) && !previousTitle.isEmpty {
+                self.buffer.append(BehaviorEvent(
+                    timestamp: Date(),
+                    kind: .tabSwitch,
+                    detail: "\(previousTitle) → \(windowTitle)",
+                    context: app
+                ))
+                needsTabCapture = Self.chromeBundleIDs.contains(bundleId) || Self.feishuBundleIDs.contains(bundleId)
+            } else {
+                needsTabCapture = false
+            }
+
+            self.buffer.append(BehaviorEvent(
                 timestamp: Date(),
                 kind: .windowTitle,
                 detail: windowTitle,
-                context: name
+                context: app
             ))
-        }
 
-        lastActiveApp = name
-        lastWindowTitle = windowTitle
+            // Refresh tab snapshot so the cache doesn't go stale when the user
+            // stays in the same browser for a long time without switching apps.
+            if needsTabCapture {
+                let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
+                guard pid > 0 else { return }
+                if let tabs = self.captureTabs(bundleId: bundleId, pid: pid) {
+                    self.tabSnapshotCache?.store(appName: app, bundleId: bundleId, tabs: tabs)
+                    print("[BehaviorMonitor] Tab snapshot refreshed (title poll): \(app) (\(tabs.count) tabs)")
+                }
+            }
+        }
     }
 
     // MARK: - Clipboard
@@ -190,6 +293,119 @@ class BehaviorMonitor {
         }
     }
 
+    // MARK: - Tab Snapshot Capture
+
+    private func captureTabs(bundleId: String, pid: pid_t) -> [TabInfo]? {
+        if Self.chromeBundleIDs.contains(bundleId) {
+            return captureChromeTabs(pid: pid)
+        } else if Self.feishuBundleIDs.contains(bundleId) {
+            return captureFeishuTabs(pid: pid)
+        }
+        return nil
+    }
+
+    private func captureChromeTabs(pid: pid_t) -> [TabInfo]? {
+        let appEl = AXUIElementCreateApplication(pid)
+
+        // Enable enhanced UI to access Chrome tab info
+        AXUIElementSetAttributeValue(appEl, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
+
+        var focusedRef: AnyObject?
+        guard AXUIElementCopyAttributeValue(appEl, kAXFocusedWindowAttribute as CFString, &focusedRef) == .success else {
+            return nil
+        }
+
+        var tabs: [TabInfo] = []
+
+        func findTabs(_ el: AXUIElement, depth: Int = 0) {
+            guard depth < 10 else { return }
+
+            var roleRef: AnyObject?
+            guard AXUIElementCopyAttributeValue(el, kAXRoleAttribute as CFString, &roleRef) == .success,
+                  let role = roleRef as? String else { return }
+
+            if role == "AXRadioButton" {
+                var subroleRef: AnyObject?
+                if AXUIElementCopyAttributeValue(el, kAXSubroleAttribute as CFString, &subroleRef) == .success,
+                   let subrole = subroleRef as? String, subrole == "AXTabButton" {
+
+                    var descRef: AnyObject?
+                    if AXUIElementCopyAttributeValue(el, kAXDescriptionAttribute as CFString, &descRef) == .success,
+                       let desc = descRef as? String, !desc.isEmpty {
+
+                        var selectedRef: AnyObject?
+                        let isSelected = AXUIElementCopyAttributeValue(el, kAXValueAttribute as CFString, &selectedRef) == .success
+                            && (selectedRef as? NSNumber)?.boolValue == true
+
+                        tabs.append(TabInfo(title: desc, isActive: isSelected))
+                    }
+                }
+            }
+
+            var childrenRef: AnyObject?
+            guard AXUIElementCopyAttributeValue(el, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+                  let children = childrenRef as? [AXUIElement] else { return }
+            for child in children {
+                findTabs(child, depth: depth + 1)
+            }
+        }
+
+        findTabs(focusedRef as! AXUIElement)
+        return tabs.isEmpty ? nil : tabs
+    }
+
+    private func captureFeishuTabs(pid: pid_t) -> [TabInfo]? {
+        let appEl = AXUIElementCreateApplication(pid)
+
+        var focusedRef: AnyObject?
+        guard AXUIElementCopyAttributeValue(appEl, kAXFocusedWindowAttribute as CFString, &focusedRef) == .success else {
+            return nil
+        }
+
+        var tabs: [TabInfo] = []
+
+        func findTabScrollArea(_ el: AXUIElement, depth: Int = 0) {
+            guard depth < 20 else { return }
+
+            var descRef: AnyObject?
+            if AXUIElementCopyAttributeValue(el, kAXDescriptionAttribute as CFString, &descRef) == .success,
+               let desc = descRef as? String, desc.contains("TabScrollContents") {
+
+                var childrenRef: AnyObject?
+                guard AXUIElementCopyAttributeValue(el, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+                      let children = childrenRef as? [AXUIElement] else { return }
+
+                for child in children {
+                    var roleRef: AnyObject?
+                    guard AXUIElementCopyAttributeValue(child, kAXRoleAttribute as CFString, &roleRef) == .success,
+                          let role = roleRef as? String, role == "AXRadioButton" else { continue }
+
+                    var tabDescRef: AnyObject?
+                    if AXUIElementCopyAttributeValue(child, kAXDescriptionAttribute as CFString, &tabDescRef) == .success,
+                       let tabDesc = tabDescRef as? String, !tabDesc.isEmpty {
+
+                        var selectedRef: AnyObject?
+                        let isSelected = AXUIElementCopyAttributeValue(child, kAXValueAttribute as CFString, &selectedRef) == .success
+                            && (selectedRef as? NSNumber)?.boolValue == true
+
+                        tabs.append(TabInfo(title: tabDesc, isActive: isSelected))
+                    }
+                }
+                return
+            }
+
+            var childrenRef: AnyObject?
+            guard AXUIElementCopyAttributeValue(el, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+                  let children = childrenRef as? [AXUIElement] else { return }
+            for child in children {
+                findTabScrollArea(child, depth: depth + 1)
+            }
+        }
+
+        findTabScrollArea(focusedRef as! AXUIElement)
+        return tabs.isEmpty ? nil : tabs
+    }
+
     // MARK: - Accessibility Helpers
 
     private func readFocusedWindowTitle() -> String {
@@ -217,9 +433,16 @@ class BehaviorMonitor {
     }
 
     private func describeElementAtQuartzPosition(_ point: CGPoint) -> String {
+        // Use the focused app's AX element instead of system-wide to avoid
+        // triggering accessibilityHitTest on our own NSHostingView (which causes
+        // a main-thread assertion crash from SafariPlatformSupport KVO).
         let systemWide = AXUIElementCreateSystemWide()
+        var focusedApp: AnyObject?
+        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedApplicationAttribute as CFString, &focusedApp) == .success else {
+            return "unknown"
+        }
         var element: AXUIElement?
-        guard AXUIElementCopyElementAtPosition(systemWide, Float(point.x), Float(point.y), &element) == .success,
+        guard AXUIElementCopyElementAtPosition(focusedApp as! AXUIElement, Float(point.x), Float(point.y), &element) == .success,
               let el = element else {
             return "unknown"
         }

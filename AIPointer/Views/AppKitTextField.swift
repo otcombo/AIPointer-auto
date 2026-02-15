@@ -90,7 +90,10 @@ struct AppKitTextField: NSViewRepresentable {
         if nsView.stringValue != text {
             nsView.stringValue = text
         }
-        nsView.isEnabled = !isDisabled
+        let shouldEnable = !isDisabled
+        if nsView.isEnabled != shouldEnable {
+            nsView.isEnabled = shouldEnable
+        }
     }
 
     class Coordinator: NSObject, NSTextFieldDelegate {

@@ -268,6 +268,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             service.stop()
             print("[BehaviorSensing] Stopped")
         }
+
+        // Focus detection settings
+        if enabled {
+            service.applyFocusDetectionSettings()
+            let focusEnabled = defaults.object(forKey: "focusDetectionEnabled") as? Bool ?? true
+            if focusEnabled && !service.isFocusDetectionRunning {
+                service.startFocusDetection()
+            } else if !focusEnabled && service.isFocusDetectionRunning {
+                service.stopFocusDetection()
+            }
+        }
     }
 
     @objc private func settingsChanged() {
@@ -535,7 +546,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let window = NSWindow(contentViewController: hostingController)
             window.title = "AI Pointer Settings"
             window.styleMask = [.titled, .closable]
-            window.setContentSize(NSSize(width: 380, height: 420))
+            window.setContentSize(NSSize(width: 380, height: 640))
             window.center()
             settingsWindow = window
         }

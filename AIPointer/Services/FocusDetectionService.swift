@@ -141,19 +141,15 @@ class FocusDetectionService {
         if result.detected, let keywords = result.searchKeywords, !keywords.isEmpty {
             let communitySkills = await searchClawHub(keywords: keywords)
             if !communitySkills.isEmpty {
-                let skillNames = communitySkills.prefix(3).map { $0.name }.joined(separator: ", ")
-                let skillDetails = communitySkills.prefix(3).map { "\($0.name): \($0.description)" }.joined(separator: "\n")
-                let mergePrompt = """
-                将以下"帮助建议"和"推荐工具"合并为一段自然流畅的话（≤ 150 字符）。
-                像朋友推荐一样说话，不要用列表格式。必须提到工具名。
+                let topSkills = communitySkills.prefix(3).map { $0.name }.joined(separator: "、")
+                result.offer = (result.offer ?? "") + "（推荐 skill: " + topSkills + "）"
+            }
+        }
 
-                帮助建议：\(result.offer ?? "")
-                推荐工具：\(skillDetails)
-
-                直接输出合并后的文本，不要任何其他内容。
-                """
-                let mergedOffer = await callOpenClaw(prompt: mergePrompt)
-                result.offer = mergedOffer ?? (result.offer ?? "") + " 推荐: " + skillNames
+        // Prepend installed skill mention if not already in offer
+        if result.detected, let skill = result.installedSkill, !skill.isEmpty {
+            if let offer = result.offer, !offer.contains(skill) {
+                result.offer = "试试 " + skill + "。" + offer
             }
         }
 
@@ -429,7 +425,7 @@ class FocusDetectionService {
 
         --- Response format (strict JSON, no other text) ---
         Keep fields concise. User must understand at a glance.
-        Character limits: theme ≤ 20 chars, observation ≤ 100 chars, insight ≤ 60 chars, offer ≤ 150 chars.
+        Character limits: theme ≤ 30 chars, observation ≤ 200 chars, insight ≤ 120 chars, offer ≤ 200 chars.
 
         All fields MUST NOT contain psychological analysis, emotional judgment, or motive speculation. You are a tool, not a therapist.
         Only describe WHAT the user is doing, never WHY they are doing it or HOW they feel.
@@ -448,20 +444,23 @@ class FocusDetectionService {
         ❌ "User is exploring cross-platform investment opportunities"
         ✅ "Comparing Moutai vs Wuliangye stock prices"
 
-        offer: Only say what you can do. Do not comment on user behavior.
+        offer: Say what you can do. If recommending a skill, say it naturally like '可以帮你XXX，试试 skill-name' or 'I can help with XXX, try skill-name'.
+        If installedSkill is set, MUST mention it in offer naturally.
         ❌ "You've been in this exhausting cycle for hours"
-        ✅ "可以帮你自动监控这6只股票的价格变动"
+        ❌ "推荐: stock-analysis, portfolio-watcher" (bare list)
+        ✅ "可以帮你自动监控这6只股票，试试 portfolio-watcher"
+        ✅ "I can track these stocks for you, try portfolio-watcher"
 
         Each field focuses on ONE thing only. If the user is doing two unrelated things, only report the most prominent topic within the detection window.
 
         Installed skill can help:
-        {"detected":true,"confidence":"high/medium","theme":"≤20 chars","observation":"≤100 chars","insight":"≤60 chars","offer":"≤80 chars","installedSkill":"skill-name"}
+        {"detected":true,"confidence":"high/medium","theme":"≤30 chars","observation":"≤200 chars","insight":"≤120 chars","offer":"≤200 chars","installedSkill":"skill-name"}
 
         Need community skill search:
-        {"detected":true,"confidence":"high/medium","theme":"≤20 chars","observation":"≤100 chars","insight":"≤60 chars","offer":"≤80 chars","searchKeywords":["kw1","kw2"]}
+        {"detected":true,"confidence":"high/medium","theme":"≤30 chars","observation":"≤200 chars","insight":"≤120 chars","offer":"≤200 chars","searchKeywords":["kw1","kw2"]}
 
         Both installed + search:
-        {"detected":true,"confidence":"high/medium","theme":"≤20 chars","observation":"≤100 chars","insight":"≤60 chars","offer":"≤80 chars","installedSkill":"skill-name","searchKeywords":["kw1","kw2"]}
+        {"detected":true,"confidence":"high/medium","theme":"≤30 chars","observation":"≤200 chars","insight":"≤120 chars","offer":"≤200 chars","installedSkill":"skill-name","searchKeywords":["kw1","kw2"]}
 
         No theme or cannot help:
         {"detected":false}

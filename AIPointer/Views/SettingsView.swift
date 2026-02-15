@@ -7,6 +7,15 @@ struct SettingsView: View {
     @AppStorage("agentId") private var agentId = "main"
     @AppStorage("behaviorSensingEnabled") private var behaviorSensingEnabled = true
     @AppStorage("behaviorSensitivity") private var behaviorSensitivity = 1.0
+    @AppStorage("focusDetectionEnabled") private var focusDetectionEnabled = true
+    @AppStorage("focusDetectionWindow") private var focusDetectionWindow = 5.0
+    @AppStorage("focusCooldownDetected") private var focusCooldownDetected = 10.0
+    @AppStorage("focusCooldownMissed") private var focusCooldownMissed = 2.0
+    @AppStorage("focusStrictness") private var focusStrictness = 1
+    @AppStorage("focusShowObservation") private var focusShowObservation = true
+    @AppStorage("focusShowInsight") private var focusShowInsight = true
+    @AppStorage("focusShowOffer") private var focusShowOffer = true
+    @AppStorage("suggestionDisplaySeconds") private var suggestionDisplaySeconds = 10.0
     @AppStorage("debugMaterial") private var debugMaterial: Int = 13 // .hudWindow
     @State private var debugCycling = false
 
@@ -39,6 +48,90 @@ struct SettingsView: View {
                     Text("Higher sensitivity triggers suggestions more often.")
                         .font(.caption)
                         .foregroundColor(.secondary)
+
+                    Divider()
+
+                    Toggle("Enable focus detection", isOn: $focusDetectionEnabled)
+
+                    if focusDetectionEnabled {
+                        VStack(alignment: .leading) {
+                            HStack {
+                                Text("Detection window")
+                                Spacer()
+                                Text("\(Int(focusDetectionWindow)) min")
+                                    .monospacedDigit()
+                                    .foregroundColor(.secondary)
+                            }
+                            Slider(value: $focusDetectionWindow, in: 3...10, step: 1)
+                        }
+
+                        VStack(alignment: .leading) {
+                            HStack {
+                                Text("Cooldown (detected)")
+                                Spacer()
+                                Text(String(format: "%.1f", focusCooldownDetected) + " min")
+                                    .monospacedDigit()
+                                    .foregroundColor(.secondary)
+                            }
+                            Slider(value: $focusCooldownDetected, in: 0...30, step: 0.5)
+                        }
+
+                        VStack(alignment: .leading) {
+                            HStack {
+                                Text("Cooldown (not detected)")
+                                Spacer()
+                                Text(String(format: "%.1f", focusCooldownMissed) + " min")
+                                    .monospacedDigit()
+                                    .foregroundColor(.secondary)
+                            }
+                            Slider(value: $focusCooldownMissed, in: 0...5, step: 0.5)
+                        }
+
+                        Picker("Strictness", selection: $focusStrictness) {
+                            Text("Relaxed").tag(0)
+                            Text("Normal").tag(1)
+                            Text("Strict").tag(2)
+                        }
+                        .pickerStyle(.segmented)
+
+                        Text("Relaxed = more suggestions, Strict = fewer but more precise")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        Divider()
+
+                        Text("Display Options")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+
+                        Toggle("Show observation", isOn: $focusShowObservation)
+                        Text("Detected behavior facts")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        Toggle("Show insight", isOn: $focusShowInsight)
+                        Text("AI's interpretation of your intent")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        Toggle("Show offer", isOn: $focusShowOffer)
+                        Text("What AI can help with, including skill recommendations")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        Divider()
+
+                        VStack(alignment: .leading) {
+                            HStack {
+                                Text("Suggestion display time")
+                                Spacer()
+                                Text("\(Int(suggestionDisplaySeconds))s")
+                                    .monospacedDigit()
+                                    .foregroundColor(.secondary)
+                            }
+                            Slider(value: $suggestionDisplaySeconds, in: 3...30, step: 1)
+                        }
+                    }
                 }
             }
 
@@ -74,7 +167,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 380, height: 420)
+        .frame(width: 380, height: 640)
     }
 }
 

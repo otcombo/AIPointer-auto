@@ -8,6 +8,7 @@ enum BehaviorEventKind: String {
     case dwell
     case copy
     case tabSwitch
+    case tabSnapshot
     case fileOp
 }
 
@@ -23,7 +24,7 @@ class BehaviorBuffer {
     private let maxEvents: Int
     private let maxAge: TimeInterval
 
-    init(maxEvents: Int = 200, maxAge: TimeInterval = 300) {
+    init(maxEvents: Int = 400, maxAge: TimeInterval = 600) {
         self.maxEvents = maxEvents
         self.maxAge = maxAge
     }

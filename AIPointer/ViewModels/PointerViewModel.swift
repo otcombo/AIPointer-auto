@@ -46,11 +46,11 @@ class PointerViewModel: ObservableObject {
             attachedImages = []
             pendingBehaviorContext = nil
             onStateChanged?(state)
-        case .suggestion(let observation, let suggestion):
+        case .suggestion:
             // Accept suggestion: transition to input with context pre-loaded
+            // pendingBehaviorContext was already set by updateBehaviorSuggestion (display-filtered)
             suggestionDismissTimer?.invalidate()
             suggestionDismissTimer = nil
-            pendingBehaviorContext = "Observation: \(observation)\nSuggestion: \(suggestion ?? "")"
             state = .input
             inputText = ""
             attachedImages = []
@@ -175,15 +175,22 @@ class PointerViewModel: ObservableObject {
         // Only show suggestion when in non-interactive states
         switch state {
         case .idle, .monitoring, .codeReady:
+            // suggestion field carries the pre-filtered display text from BehaviorSensingService
             state = .suggestion(observation: analysis.observation, suggestion: analysis.suggestion)
+            pendingBehaviorContext = analysis.suggestion  // Store filtered text for Fn press
             onStateChanged?(state)
 
-            // Auto-dismiss after 4 seconds
+            // Auto-dismiss after configured duration (default 10s)
+            let duration = {
+                let val = UserDefaults.standard.double(forKey: "suggestionDisplaySeconds")
+                return val > 0 ? val : 10.0
+            }()
             suggestionDismissTimer?.invalidate()
-            suggestionDismissTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: false) { [weak self] _ in
+            suggestionDismissTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
                 DispatchQueue.main.async {
                     guard let self else { return }
                     if case .suggestion = self.state {
+                        self.pendingBehaviorContext = nil
                         self.state = .idle
                         self.onStateChanged?(self.state)
                     }

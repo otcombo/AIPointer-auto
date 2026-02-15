@@ -7,7 +7,16 @@ struct MonitoringIndicator: View {
     var body: some View {
         Image(systemName: "dot.radiowaves.up.forward")
             .font(.system(size: 14.5, weight: .bold))
-            .foregroundColor(.white)
+            .foregroundStyle(
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        .white,
+                        Color(red: 1.0, green: 0.75, blue: 0.0)  // #FFBC00
+                    ]),
+                    startPoint: .bottomLeading,
+                    endPoint: .topTrailing
+                )
+            )
             .symbolEffect(.breathe)
             .rotationEffect(.degrees(90))
             .offset(x: -2.5, y: -2.5)

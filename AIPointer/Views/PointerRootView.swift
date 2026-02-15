@@ -92,12 +92,12 @@ struct PointerRootView: View {
                         VStack(alignment: .leading, spacing: 0) {
                             // Behavior context bar
                             if let context = viewModel.pendingBehaviorContext {
-                                Text(context)
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.white.opacity(0.7))
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
+                                ScrollView {
+                                    BehaviorContextView(text: context)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 8)
+                                }
+                                .frame(maxHeight: 200)
                                 Rectangle()
                                     .fill(Color.white.opacity(0.1))
                                     .frame(height: 1)
@@ -183,5 +183,54 @@ struct PointerRootView: View {
             )
             .animation(.spring(response: 0.35, dampingFraction: 0.7), value: inputBarWidth)
             .animation(.spring(response: 0.293, dampingFraction: 0.793), value: viewModel.attachedImages.count)
+    }
+}
+
+/// Renders behavior context with section headers (Observation / Insight / Action).
+private struct BehaviorContextView: View {
+    let text: String
+
+    private var sections: [(header: String?, body: String)] {
+        let knownHeaders: Set<String> = ["Observation", "Insight", "Action"]
+        var result: [(header: String?, body: String)] = []
+        var currentHeader: String? = nil
+        var currentLines: [String] = []
+
+        for line in text.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if knownHeaders.contains(trimmed) {
+                // Flush previous section
+                if !currentLines.isEmpty {
+                    result.append((header: currentHeader, body: currentLines.joined(separator: "\n")))
+                    currentLines = []
+                }
+                currentHeader = trimmed
+            } else if !trimmed.isEmpty {
+                currentLines.append(trimmed)
+            }
+        }
+        if !currentLines.isEmpty {
+            result.append((header: currentHeader, body: currentLines.joined(separator: "\n")))
+        }
+        return result
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(sections.enumerated()), id: \.offset) { _, section in
+                VStack(alignment: .leading, spacing: 2) {
+                    if let header = section.header {
+                        Text(header)
+                            .font(.custom("SF Compact Text", size: 12).weight(.semibold))
+                            .foregroundColor(.white.opacity(0.45))
+                            .textCase(.uppercase)
+                    }
+                    Text(section.body)
+                        .font(.custom("SF Compact Text", size: 14).weight(.medium))
+                        .foregroundColor(.white.opacity(0.75))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
     }
 }

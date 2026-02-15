@@ -13,6 +13,7 @@ class BehaviorSensingService {
     let buffer = BehaviorBuffer()
     let scorer = BehaviorScorer()
     let monitor: BehaviorMonitor
+    let tabSnapshotCache = TabSnapshotCache()
 
     var openClawService: OpenClawService?
     var onAnalysisResult: ((BehaviorAnalysis) -> Void)?
@@ -22,6 +23,11 @@ class BehaviorSensingService {
         set { scorer.sensitivity = newValue }
     }
 
+    // Focus detection
+    var focusDetectionService: FocusDetectionService?
+    private var focusDetectionTimer: Timer?
+    private(set) var isFocusDetectionRunning = false
+
     private(set) var isRunning = false
     private(set) var isAnalyzing = false
     private var evaluationTimer: Timer?
@@ -30,6 +36,7 @@ class BehaviorSensingService {
 
     init() {
         monitor = BehaviorMonitor(buffer: buffer)
+        monitor.tabSnapshotCache = tabSnapshotCache
     }
 
     func start() {
@@ -40,6 +47,12 @@ class BehaviorSensingService {
         evaluationTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.evaluate()
         }
+
+        // Start focus detection if enabled
+        let focusEnabled = UserDefaults.standard.object(forKey: "focusDetectionEnabled") as? Bool ?? true
+        if focusEnabled {
+            startFocusDetection()
+        }
     }
 
     func stop() {
@@ -47,6 +60,71 @@ class BehaviorSensingService {
         monitor.stop()
         evaluationTimer?.invalidate()
         evaluationTimer = nil
+        stopFocusDetection()
+    }
+
+    // MARK: - Focus Detection
+
+    func startFocusDetection() {
+        guard let openClaw = openClawService else { return }
+        guard !isFocusDetectionRunning else { return }
+
+        focusDetectionService = FocusDetectionService(
+            buffer: buffer,
+            tabCache: tabSnapshotCache,
+            openClawService: openClaw
+        )
+        applyFocusDetectionSettings()
+        isFocusDetectionRunning = true
+
+        focusDetectionTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            Task { [weak self] in
+                guard let self else { return }
+                guard let result = await self.focusDetectionService?.tick() else { return }
+
+                let defaults = UserDefaults.standard
+                let showObservation = defaults.object(forKey: "focusShowObservation") as? Bool ?? true
+                let showInsight = defaults.object(forKey: "focusShowInsight") as? Bool ?? true
+                let showOffer = defaults.object(forKey: "focusShowOffer") as? Bool ?? true
+
+                guard let displayText = result.displayText(
+                    showObservation: showObservation,
+                    showInsight: showInsight,
+                    showOffer: showOffer
+                ) else { return }
+
+                let analysis = BehaviorAnalysis(
+                    confidence: result.confidence == .high ? .high : .medium,
+                    observation: result.observation ?? "",
+                    suggestion: displayText
+                )
+
+                DispatchQueue.main.async {
+                    self.onAnalysisResult?(analysis)
+                }
+            }
+        }
+        print("[FocusDetect] Started")
+    }
+
+    func stopFocusDetection() {
+        focusDetectionTimer?.invalidate()
+        focusDetectionTimer = nil
+        isFocusDetectionRunning = false
+    }
+
+    func applyFocusDetectionSettings() {
+        let defaults = UserDefaults.standard
+        let window = defaults.double(forKey: "focusDetectionWindow")
+        focusDetectionService?.detectionWindowMinutes = window > 0 ? min(max(window, 3), 10) : 5
+
+        let cooldownDetected = defaults.object(forKey: "focusCooldownDetected") as? Double ?? 10
+        focusDetectionService?.cooldownDetectedMinutes = min(max(cooldownDetected, 0), 30)
+
+        let cooldownMissed = defaults.object(forKey: "focusCooldownMissed") as? Double ?? 2
+        focusDetectionService?.cooldownMissedMinutes = min(max(cooldownMissed, 0), 5)
+
+        focusDetectionService?.strictness = defaults.integer(forKey: "focusStrictness")
     }
 
     private func evaluate() {
@@ -214,6 +292,9 @@ class BehaviorSensingService {
                 }
 
             case .tabSwitch:
+                keywords.insert("browser")
+
+            case .tabSnapshot:
                 keywords.insert("browser")
 
             case .fileOp:
