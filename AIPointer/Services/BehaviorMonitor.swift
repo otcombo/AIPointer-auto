@@ -149,9 +149,11 @@ class BehaviorMonitor {
     // MARK: - Window Title Polling (detect in-app tab switches)
 
     private func checkWindowTitle() {
+        // Capture all shared state on the main thread before dispatching
         let app = lastActiveApp
         let bundleId = lastActiveBundleId
         let previousTitle = lastWindowTitle
+        let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
         guard !app.isEmpty else { return }
 
         // Run AX query off the main thread to avoid deadlocking when our own
@@ -189,7 +191,6 @@ class BehaviorMonitor {
             // Refresh tab snapshot so the cache doesn't go stale when the user
             // stays in the same browser for a long time without switching apps.
             if needsTabCapture {
-                let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
                 guard pid > 0 else { return }
                 if let tabs = self.captureTabs(bundleId: bundleId, pid: pid) {
                     self.tabSnapshotCache?.store(appName: app, bundleId: bundleId, tabs: tabs)
@@ -350,7 +351,9 @@ class BehaviorMonitor {
             }
         }
 
-        findTabs(focusedRef as! AXUIElement)
+                // AnyObject→AXUIElement cast always succeeds for CF types; guard above ensures non-nil
+        let focusedWindow = focusedRef as! AXUIElement  // safe: guarded by .success check
+        findTabs(focusedWindow)
         return tabs.isEmpty ? nil : tabs
     }
 
@@ -402,7 +405,8 @@ class BehaviorMonitor {
             }
         }
 
-        findTabScrollArea(focusedRef as! AXUIElement)
+        let focusedWindow = focusedRef as! AXUIElement  // safe: guarded by .success check
+        findTabScrollArea(focusedWindow)
         return tabs.isEmpty ? nil : tabs
     }
 

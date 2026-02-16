@@ -59,10 +59,15 @@ class PointerViewModel: ObservableObject {
             return
         }
 
-        // Don't show completion if a skill was already selected (text is "/skill rest of msg")
-        if selectedSkill != nil {
-            showSkillCompletion = false
-            return
+        // Clear selectedSkill if user edited text away from the expected prefix
+        if let skill = selectedSkill {
+            let expectedPrefix = "/\(skill.name) "
+            if !text.hasPrefix(expectedPrefix) && text != "/\(skill.name)" {
+                selectedSkill = nil
+            } else {
+                showSkillCompletion = false
+                return
+            }
         }
 
         let query = String(text.dropFirst()) // remove "/"

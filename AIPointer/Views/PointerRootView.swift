@@ -93,10 +93,13 @@ struct PointerRootView: View {
                         VStack(alignment: .leading, spacing: 0) {
                             // Behavior context bar
                             if let context = viewModel.pendingBehaviorContext {
-                                BehaviorContextView(text: context)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 8)
-                                    .fixedSize(horizontal: false, vertical: true)
+                                ScrollView {
+                                    BehaviorContextView(text: context)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 8)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .frame(maxHeight: 300)
                                 Rectangle()
                                     .fill(Color.white.opacity(0.1))
                                     .frame(height: 1)
