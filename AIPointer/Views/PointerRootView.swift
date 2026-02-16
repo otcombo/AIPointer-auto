@@ -109,10 +109,12 @@ struct PointerRootView: View {
                                     selectedIndex: viewModel.skillCompletionIndex,
                                     onSelect: { skill in viewModel.selectSkill(skill) }
                                 )
+                                .transition(.opacity.combined(with: .move(edge: .top)))
                                 Rectangle()
                                     .fill(Color.white.opacity(0.1))
                                     .frame(height: 1)
                                     .padding(.horizontal, 10)
+                                    .transition(.opacity)
                             }
                             // Attachment preview in input mode
                             if !viewModel.attachedImages.isEmpty {
@@ -200,6 +202,8 @@ struct PointerRootView: View {
             )
             .animation(.spring(response: 0.35, dampingFraction: 0.7), value: inputBarWidth)
             .animation(.spring(response: 0.293, dampingFraction: 0.793), value: viewModel.attachedImages.count)
+            .animation(.spring(response: 0.293, dampingFraction: 0.793), value: viewModel.showSkillCompletion)
+            .animation(.spring(response: 0.293, dampingFraction: 0.793), value: viewModel.filteredSkills.count)
     }
 }
 
