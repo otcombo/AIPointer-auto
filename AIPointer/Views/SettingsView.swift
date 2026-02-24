@@ -5,6 +5,7 @@ struct SettingsView: View {
     @ObservedObject var viewModel: PointerViewModel
     @AppStorage("backendURL") private var backendURL = "http://localhost:18789"
     @AppStorage("agentId") private var agentId = "main"
+    @AppStorage("responseLanguage") private var responseLanguage = "zh-CN"
     @AppStorage("behaviorSensingEnabled") private var behaviorSensingEnabled = true
     @AppStorage("behaviorSensitivity") private var behaviorSensitivity = 1.0
     @AppStorage("focusDetectionEnabled") private var focusDetectionEnabled = true
@@ -23,12 +24,21 @@ struct SettingsView: View {
         Form {
             Section("OpenClaw") {
                 TextField("Server URL", text: $backendURL,
-                          prompt: Text("http://localhost:18789"))
+                          prompt: Text("e.g. http://localhost:18789"))
                     .textFieldStyle(.roundedBorder)
                 TextField("Agent ID", text: $agentId,
-                          prompt: Text("main"))
+                          prompt: Text("e.g. main"))
                     .textFieldStyle(.roundedBorder)
                 Text("The agent to chat with. Used in model name and session key.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                Picker("Response Language", selection: $responseLanguage) {
+                    Text("中文").tag("zh-CN")
+                    Text("English").tag("en")
+                }
+                .pickerStyle(.segmented)
+                Text("Language for AI responses and behavior sensing suggestions.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

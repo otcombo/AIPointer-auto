@@ -37,17 +37,15 @@ struct InputBar: View {
     }
 
     var body: some View {
-        HStack(spacing: 4) {
-            AppKitTextField(
-                text: $text,
-                onSubmit: onSubmit,
-                onCancel: onCancel,
-                onUpArrow: onUpArrow,
-                onDownArrow: onDownArrow,
-                onTab: onTab
-            )
-
-            // Screenshot button — visible on hover only
+        AppKitTextField(
+            text: $text,
+            onSubmit: onSubmit,
+            onCancel: onCancel,
+            onUpArrow: onUpArrow,
+            onDownArrow: onDownArrow,
+            onTab: onTab
+        )
+        .overlay(alignment: .trailing) {
             if let onScreenshot = onScreenshot, isHovering {
                 Button(action: onScreenshot) {
                     Image(systemName: "plus.viewfinder")

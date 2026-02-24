@@ -5,6 +5,7 @@ class PointerViewModel: ObservableObject {
     @Published var state: PointerState = .idle
     @Published var inputText = ""
     @Published var attachedImages: [SelectedRegion] = []
+    @Published var chatHistory: [ChatMessage] = []
 
     // Skill completion
     @Published var showSkillCompletion = false
@@ -20,6 +21,9 @@ class PointerViewModel: ObservableObject {
     /// Behavior sensing: pending context from a suggestion the user accepted with fn press
     @Published private(set) var pendingBehaviorContext: String?
     private var suggestionDismissTimer: Timer?
+
+    /// Selection context captured on Fn press (selected text / Finder files)
+    @Published private(set) var pendingSelectionContext: SelectionContextCapture.CapturedContext?
 
     /// Mouse position and screen bounds captured at expansion time.
     var expansionMouseX: CGFloat = 0
@@ -107,12 +111,16 @@ class PointerViewModel: ObservableObject {
     }
 
     func onFnPress() {
+        // Snapshot frontmost app BEFORE any state change / panel activation
+        let frontApp = NSWorkspace.shared.frontmostApplication
+
         switch state {
         case .idle, .monitoring, .codeReady:
             state = .input
             inputText = ""
             attachedImages = []
             pendingBehaviorContext = nil
+            captureSelectionContext(frontApp: frontApp)
             onStateChanged?(state)
         case .suggestion:
             // Accept suggestion: transition to input with context pre-loaded
@@ -122,9 +130,19 @@ class PointerViewModel: ObservableObject {
             state = .input
             inputText = ""
             attachedImages = []
+            captureSelectionContext(frontApp: frontApp)
             onStateChanged?(state)
         default:
             dismiss()
+        }
+    }
+
+    private func captureSelectionContext(frontApp: NSRunningApplication?) {
+        SelectionContextCapture.capture(frontApp: frontApp) { [weak self] context in
+            guard let self, case .input = self.state else { return }
+            if !context.isEmpty {
+                self.pendingSelectionContext = context
+            }
         }
     }
 
@@ -197,6 +215,20 @@ class PointerViewModel: ObservableObject {
             selectedSkill = nil
         }
 
+        // Prepend selection context if present
+        if let sel = pendingSelectionContext, !sel.isEmpty {
+            var parts: [String] = []
+            if let text = sel.selectedText {
+                parts.append("[Selected Text]\n\(text)")
+            }
+            if !sel.filePaths.isEmpty {
+                let fileList = sel.filePaths.joined(separator: "\n")
+                parts.append("[Selected Files]\n\(fileList)")
+            }
+            messageText = parts.joined(separator: "\n\n") + "\n\n\(messageText)"
+            pendingSelectionContext = nil
+        }
+
         // Prepend behavior context if present
         if let context = pendingBehaviorContext {
             messageText = "\(context)\n\nUser: \(messageText)"
@@ -210,6 +242,8 @@ class PointerViewModel: ObservableObject {
                 images.append((snapshot, "[Screenshot \(index + 1)]"))
             }
         }
+
+        chatHistory.append(ChatMessage(role: .user, text: messageText))
 
         inputText = ""
         attachedImages = []
@@ -232,23 +266,30 @@ class PointerViewModel: ObservableObject {
                     case .done(let convId):
                         conversationId = convId
                         if case .responding(let fullText) = state {
+                            chatHistory.append(ChatMessage(role: .assistant, text: fullText))
                             state = .response(text: fullText)
                             onStateChanged?(state)
                         }
                     case .error(let err):
-                        state = .response(text: "Error: \(err)")
+                        let errorText = "Error: \(err)"
+                        chatHistory.append(ChatMessage(role: .assistant, text: errorText))
+                        state = .response(text: errorText)
                         onStateChanged?(state)
                     case .status:
                         break
                     }
                 }
                 if case .thinking = state {
-                    state = .response(text: "No response received.")
+                    let noResponse = "No response received."
+                    chatHistory.append(ChatMessage(role: .assistant, text: noResponse))
+                    state = .response(text: noResponse)
                     onStateChanged?(state)
                 }
             } catch {
                 if !Task.isCancelled {
-                    state = .response(text: "Error: \(error.localizedDescription)")
+                    let errorText = "Error: \(error.localizedDescription)"
+                    chatHistory.append(ChatMessage(role: .assistant, text: errorText))
+                    state = .response(text: errorText)
                     onStateChanged?(state)
                 }
             }
@@ -292,6 +333,7 @@ class PointerViewModel: ObservableObject {
         suggestionDismissTimer?.invalidate()
         suggestionDismissTimer = nil
         pendingBehaviorContext = nil
+        pendingSelectionContext = nil
         selectedSkill = nil
         showSkillCompletion = false
         filteredSkills = []

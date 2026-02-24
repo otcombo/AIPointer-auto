@@ -31,6 +31,30 @@ struct PointerRootView: View {
         return 16
     }
 
+    private var selectionContextWidth: CGFloat {
+        guard let sel = viewModel.pendingSelectionContext, !sel.isEmpty else { return 0 }
+        let headerFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        let bodyFont = NSFont.systemFont(ofSize: 13, weight: .medium)
+        var maxW: CGFloat = 0
+        if let text = sel.selectedText {
+            let preview = text.count > 10 ? String(text.prefix(10)) + "…" : text
+            let w = (preview as NSString).size(withAttributes: [.font: bodyFont]).width
+            maxW = max(maxW, w)
+        }
+        for path in sel.filePaths {
+            let nameW = ((path as NSString).lastPathComponent as NSString).size(withAttributes: [.font: bodyFont]).width
+            maxW = max(maxW, nameW)
+        }
+        if !sel.isEmpty {
+            let headerW = ("SELECTION" as NSString).size(withAttributes: [.font: headerFont]).width
+            maxW = max(maxW, headerW)
+        }
+        return maxW > 0 ? maxW + 20 : 0 // 10px padding each side
+    }
+
+    /// Maximum expanded width shared by input and chat states.
+    private static let maxExpandedWidth: CGFloat = 440
+
     private var shapeWidth: CGFloat {
         switch viewModel.state {
         case .idle: return 16
@@ -38,11 +62,11 @@ struct PointerRootView: View {
         case .suggestion: return 24
         case .codeReady: return codeReadyWidth
         case .input:
-            let contextWidth: CGFloat = viewModel.pendingBehaviorContext != nil ? 300 : 0
+            let contextWidth: CGFloat = viewModel.pendingBehaviorContext != nil ? Self.maxExpandedWidth : 0
             let skillWidth: CGFloat = viewModel.showSkillCompletion ? 360 : 0
-            let contentWidth = max(inputBarWidth, thumbnailStripWidth, contextWidth, skillWidth)
-            return min(contentWidth, 440)
-        case .thinking, .responding, .response: return 440
+            let contentWidth = max(inputBarWidth, thumbnailStripWidth, contextWidth, selectionContextWidth, skillWidth)
+            return min(contentWidth, Self.maxExpandedWidth)
+        case .thinking, .responding, .response: return Self.maxExpandedWidth
         }
     }
 
@@ -91,6 +115,16 @@ struct PointerRootView: View {
                         CodeReadyCursor(code: code)
                     case .input:
                         VStack(alignment: .leading, spacing: 0) {
+                            // Selection context bar
+                            if let sel = viewModel.pendingSelectionContext, !sel.isEmpty {
+                                SelectionContextView(context: sel)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 8)
+                                Rectangle()
+                                    .fill(Color.white.opacity(0.1))
+                                    .frame(height: 1)
+                                    .padding(.horizontal, 10)
+                            }
                             // Behavior context bar
                             if let context = viewModel.pendingBehaviorContext {
                                 ScrollView {
@@ -145,6 +179,7 @@ struct PointerRootView: View {
                         }
                     case .thinking:
                         ChatPanel(
+                            chatHistory: viewModel.chatHistory,
                             responseText: "",
                             isThinking: true,
                             isStreaming: false,
@@ -154,6 +189,7 @@ struct PointerRootView: View {
                         )
                     case .responding(let text):
                         ChatPanel(
+                            chatHistory: viewModel.chatHistory,
                             responseText: text,
                             isThinking: false,
                             isStreaming: true,
@@ -163,6 +199,7 @@ struct PointerRootView: View {
                         )
                     case .response(let text):
                         ChatPanel(
+                            chatHistory: viewModel.chatHistory,
                             responseText: text,
                             isThinking: false,
                             isStreaming: false,
@@ -207,6 +244,40 @@ struct PointerRootView: View {
             .animation(.spring(response: 0.293, dampingFraction: 0.793), value: viewModel.attachedImages.count)
             .animation(.spring(response: 0.293, dampingFraction: 0.793), value: viewModel.showSkillCompletion)
             .animation(.spring(response: 0.293, dampingFraction: 0.793), value: viewModel.filteredSkills.count)
+            .animation(.spring(response: 0.293, dampingFraction: 0.793), value: viewModel.pendingSelectionContext)
+    }
+}
+
+/// Renders captured selection context (selected text and/or Finder file paths).
+private struct SelectionContextView: View {
+    let context: SelectionContextCapture.CapturedContext
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let text = context.selectedText {
+                let preview = text.count > 10 ? String(text.prefix(10)) + "…" : text
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("SELECTION")
+                        .font(.custom("SF Compact Text", size: 11).weight(.semibold))
+                        .foregroundColor(.white.opacity(0.45))
+                    Text(preview)
+                        .font(.custom("SF Compact Text", size: 13).weight(.medium))
+                        .foregroundColor(.white.opacity(0.75))
+                        .lineLimit(1)
+                }
+            }
+            ForEach(context.filePaths, id: \.self) { path in
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("FILE")
+                        .font(.custom("SF Compact Text", size: 11).weight(.semibold))
+                        .foregroundColor(.white.opacity(0.45))
+                    Text((path as NSString).lastPathComponent)
+                        .font(.custom("SF Compact Text", size: 13).weight(.medium))
+                        .foregroundColor(.white.opacity(0.75))
+                        .lineLimit(1)
+                }
+            }
+        }
     }
 }
 
@@ -240,7 +311,7 @@ private struct BehaviorContextView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 24) {
             ForEach(Array(sections.enumerated()), id: \.offset) { _, section in
                 VStack(alignment: .leading, spacing: 2) {
                     if let header = section.header {

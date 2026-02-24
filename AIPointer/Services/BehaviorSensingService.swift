@@ -6,7 +6,34 @@ struct BehaviorAnalysis {
     }
     let confidence: Confidence
     let observation: String
-    let suggestion: String
+    let insight: String
+    let offer: String
+    
+    var suggestion: String {
+        let defaults = UserDefaults.standard
+        let showObservation = defaults.object(forKey: "focusShowObservation") as? Bool ?? true
+        let showInsight = defaults.object(forKey: "focusShowInsight") as? Bool ?? true
+        let showOffer = defaults.object(forKey: "focusShowOffer") as? Bool ?? true
+        let language = defaults.string(forKey: "responseLanguage") ?? "zh-CN"
+        let isChinese = language == "zh-CN"
+        
+        var parts: [String] = []
+        
+        if showObservation && !observation.isEmpty {
+            let title = isChinese ? "观察" : "Observation"
+            parts.append("\(title)\n\(observation)")
+        }
+        if showInsight && !insight.isEmpty {
+            let title = isChinese ? "推测" : "Insight"
+            parts.append("\(title)\n\(insight)")
+        }
+        if showOffer && !offer.isEmpty {
+            let title = isChinese ? "建议" : "Offer"
+            parts.append("\(title)\n\(offer)")
+        }
+        
+        return parts.joined(separator: "\n\n")
+    }
 }
 
 class BehaviorSensingService {
@@ -87,16 +114,17 @@ class BehaviorSensingService {
                 let showInsight = defaults.object(forKey: "focusShowInsight") as? Bool ?? true
                 let showOffer = defaults.object(forKey: "focusShowOffer") as? Bool ?? true
 
-                guard let displayText = result.displayText(
-                    showObservation: showObservation,
-                    showInsight: showInsight,
-                    showOffer: showOffer
-                ) else { return }
+                guard result.displayText(
+                    showObservation: true,
+                    showInsight: true,
+                    showOffer: true
+                ) != nil else { return }
 
                 let analysis = BehaviorAnalysis(
                     confidence: result.confidence == .high ? .high : .medium,
                     observation: result.observation ?? "",
-                    suggestion: displayText
+                    insight: result.insight ?? "",
+                    offer: result.offer ?? ""
                 )
 
                 DispatchQueue.main.async {
@@ -213,14 +241,24 @@ class BehaviorSensingService {
     }
 
     private func buildPrompt(events: [BehaviorEvent], skills: [(name: String, description: String)] = []) -> String {
+        let language = UserDefaults.standard.string(forKey: "responseLanguage") ?? "zh-CN"
+        let isChinese = language == "zh-CN"
+        
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
 
         var lines: [String] = []
-        lines.append("You are analyzing a user's desktop behavior to detect repetitive patterns and offer proactive help.")
-        lines.append("Below is a timeline of recent user actions. Analyze for repetitive patterns.")
+        
+        if isChinese {
+            lines.append("你在分析用户的桌面操作行为，检测重复模式并主动提供帮助。")
+            lines.append("以下是用户最近的操作时间线。分析是否有重复模式。")
+        } else {
+            lines.append("You are analyzing a user's desktop behavior to detect repetitive patterns and offer proactive help.")
+            lines.append("Below is a timeline of recent user actions. Analyze for repetitive patterns.")
+        }
+        
         lines.append("")
-        lines.append("--- Timeline ---")
+        lines.append(isChinese ? "--- 时间线 ---" : "--- Timeline ---")
 
         for event in events {
             let time = formatter.string(from: event.timestamp)
@@ -233,31 +271,55 @@ class BehaviorSensingService {
 
         if !skills.isEmpty {
             lines.append("")
-            lines.append("--- Related Skills (from ClawHub) ---")
+            lines.append(isChinese ? "--- 相关技能 (来自 ClawHub) ---" : "--- Related Skills (from ClawHub) ---")
             for skill in skills {
                 lines.append("- \(skill.name): \(skill.description)")
             }
         }
 
         lines.append("")
-        lines.append("--- Your capabilities ---")
-        lines.append("You can: read/write files, run scripts (Python/Node/Shell), operate browsers, read email, send messages, extract web content, search the web.")
-        if !skills.isEmpty {
-            lines.append("If a listed Skill above is relevant, recommend it in your suggestion. Otherwise, suggest based on your own capabilities.")
+        lines.append(isChinese ? "--- 你的能力 ---" : "--- Your capabilities ---")
+        
+        if isChinese {
+            lines.append("你可以：读写文件、运行脚本（Python/Node/Shell）、操作浏览器、读邮件、发消息、提取网页内容、搜索网络。")
+            if !skills.isEmpty {
+                lines.append("如果上面列出的技能相关，在建议中提到它。否则根据你自己的能力给建议。")
+            }
+        } else {
+            lines.append("You can: read/write files, run scripts (Python/Node/Shell), operate browsers, read email, send messages, extract web content, search the web.")
+            if !skills.isEmpty {
+                lines.append("If a listed Skill above is relevant, recommend it in your suggestion. Otherwise, suggest based on your own capabilities.")
+            }
         }
 
         lines.append("")
-        lines.append("Respond with JSON only:")
-        lines.append("""
-        {"confidence": "high|medium|low", "observation": "what pattern you detected", "suggestion": "how you can help"}
-        """)
-        lines.append("")
-        lines.append("Rules:")
-        lines.append("- confidence=high: clear repetitive pattern that could be automated")
-        lines.append("- confidence=medium: likely pattern, user might benefit from help")
-        lines.append("- confidence=low: no clear pattern or too little data")
-        lines.append("- observation: concise description of what the user is doing (1 sentence)")
-        lines.append("- suggestion: specific actionable help you can provide (1 sentence)")
+        lines.append(isChinese ? "只返回 JSON：" : "Respond with JSON only:")
+        
+        if isChinese {
+            lines.append("""
+            {"confidence": "high|medium|low", "observation": "检测到什么模式", "insight": "为什么这样做", "offer": "如何帮忙"}
+            """)
+            lines.append("")
+            lines.append("规则：")
+            lines.append("- confidence=high: 明确的重复模式，可以自动化")
+            lines.append("- confidence=medium: 可能的模式，用户可能需要帮助")
+            lines.append("- confidence=low: 没有明确模式或数据太少")
+            lines.append("- observation: 简洁描述用户在做什么（一句话，客观事实）")
+            lines.append("- insight: 为什么用户在这样做（一句话，推测意图）")
+            lines.append("- offer: 你能提供的具体可操作帮助（一句话）")
+        } else {
+            lines.append("""
+            {"confidence": "high|medium|low", "observation": "what pattern you detected", "insight": "why they are doing it", "offer": "how you can help"}
+            """)
+            lines.append("")
+            lines.append("Rules:")
+            lines.append("- confidence=high: clear repetitive pattern that could be automated")
+            lines.append("- confidence=medium: likely pattern, user might benefit from help")
+            lines.append("- confidence=low: no clear pattern or too little data")
+            lines.append("- observation: concise description of what the user is doing (1 sentence, objective facts)")
+            lines.append("- insight: why the user is doing it (1 sentence, infer intent)")
+            lines.append("- offer: specific actionable help you can provide (1 sentence)")
+        }
 
         return lines.joined(separator: "\n")
     }
@@ -400,8 +462,9 @@ class BehaviorSensingService {
         }
 
         let observation = json["observation"] as? String ?? ""
-        let suggestion = json["suggestion"] as? String ?? ""
+        let insight = json["insight"] as? String ?? ""
+        let offer = json["offer"] as? String ?? ""
 
-        return BehaviorAnalysis(confidence: confidence, observation: observation, suggestion: suggestion)
+        return BehaviorAnalysis(confidence: confidence, observation: observation, insight: insight, offer: offer)
     }
 }

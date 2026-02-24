@@ -29,6 +29,8 @@ class OverlayPanel: NSPanel {
         self.isOpaque = false
         self.hasShadow = false
         self.isMovableByWindowBackground = false
+        self.animationBehavior = .none
+        self.displaysWhenScreenProfileChanges = true
     }
 
     // MARK: - Key window
@@ -151,16 +153,18 @@ class OverlayPanel: NSPanel {
         CATransaction.commit()
     }
 
-    /// Animate collapse using easeOut bezier curve (no bounce).
-    /// Uses a Timer to drive the curve, updating window frame each tick.
+    /// Animate collapse: let SwiftUI handle the visual shrink via PointerShape,
+    /// then snap the window frame to final size once the animation completes.
+    /// This avoids the NSPanel window boundary hard-clipping SwiftUI content
+    /// during the animation (which caused a "cutting" artifact).
     private func animateCollapse() {
         collapseTimer?.invalidate()
+        collapseTimer = nil
         isCollapsing = true
 
         let duration: Double = 0.25
         let targetSize = paddedSize(20, 20)
         let p = Self.shadowPadding
-        // Collapse toward current mouse position so it doesn't teleport after animation
         let mouse = lastMousePosition
         let targetOrigin = NSPoint(
             x: expandsRight
@@ -170,32 +174,16 @@ class OverlayPanel: NSPanel {
                 ? mouse.y - targetSize.height + p
                 : mouse.y - p
         )
-        let startFrame = frame
-        let startTime = CACurrentMediaTime()
 
-        collapseTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 120, repeats: true) { [weak self] timer in
-            guard let self else { timer.invalidate(); return }
-            let elapsed = CACurrentMediaTime() - startTime
-            let t = min(elapsed / duration, 1.0)
-
-            // easeOut bezier: decelerate towards end
-            let progress = 1.0 - pow(1.0 - t, 3.0)
-
-            let x = startFrame.origin.x + (targetOrigin.x - startFrame.origin.x) * progress
-            let y = startFrame.origin.y + (targetOrigin.y - startFrame.origin.y) * progress
-            let w = startFrame.width + (targetSize.width - startFrame.width) * progress
-            let h = startFrame.height + (targetSize.height - startFrame.height) * progress
-
+        // Keep window at current size while SwiftUI animates the visual shrink.
+        // After the animation duration, snap window to final collapsed size.
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
+            guard let self else { return }
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            self.setFrame(NSRect(x: x, y: y, width: w, height: h), display: false)
+            self.setFrame(NSRect(origin: targetOrigin, size: targetSize), display: false)
             CATransaction.commit()
-
-            if t >= 1.0 {
-                timer.invalidate()
-                self.collapseTimer = nil
-                self.isCollapsing = false
-            }
+            self.isCollapsing = false
         }
     }
 
@@ -218,20 +206,26 @@ class OverlayPanel: NSPanel {
             let w = max(textWidth + 20, 16)
             snapToMouse(width: w, height: 20)
 
-        case .input, .thinking, .responding, .response:
+        case .input:
             ignoresMouseEvents = false
             allowsKeyWindow = true
             snapToMouse(width: 440, height: 300)
+
+        case .thinking, .responding, .response:
+            ignoresMouseEvents = false
+            allowsKeyWindow = true
         }
     }
 
     func moveTo(_ point: NSPoint) {
         guard !isCollapsing else { return }
+        let p = Self.shadowPadding
+        let origin = NSPoint(x: point.x - p, y: point.y - frame.height + p)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let p = Self.shadowPadding
-        setFrameOrigin(NSPoint(x: point.x - p, y: point.y - frame.height + p))
+        setFrameOrigin(origin)
         CATransaction.commit()
+        invalidateShadow()
     }
 
     func clampToScreen() {
