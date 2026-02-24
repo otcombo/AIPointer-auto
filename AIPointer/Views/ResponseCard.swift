@@ -54,12 +54,14 @@ struct ChatPanel: View {
                 )
             }
 
-            // Separator above input field
-            Rectangle()
-                .fill(Color.white.opacity(0.1))
-                .frame(height: 1)
-                .padding(.top, 14)
-                .padding(.bottom, 12)
+            // Separator above input field (only when there's content above)
+            if !responseText.isEmpty || isThinking || !attachedImages.isEmpty {
+                Rectangle()
+                    .fill(Color.white.opacity(0.1))
+                    .frame(height: 1)
+                    .padding(.top, 14)
+                    .padding(.bottom, 12)
+            }
 
             // Input field with screenshot button (visible on hover)
             HStack(spacing: 4) {
@@ -91,7 +93,7 @@ struct ChatPanel: View {
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.vertical, 14)
         .frame(minWidth: 200, maxWidth: 440)
     }
 }

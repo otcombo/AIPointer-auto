@@ -86,6 +86,8 @@ class OverlayPanel: NSPanel {
 
     /// Timer driving the spring-based collapse animation.
     private var collapseTimer: Timer?
+    /// True while collapse animation is running — blocks moveTo() to prevent fight.
+    private(set) var isCollapsing: Bool = false
 
     /// Whether content currently expands right/down — drives panel positioning.
     private(set) var expandsRight: Bool = true
@@ -101,6 +103,7 @@ class OverlayPanel: NSPanel {
     private func snapToMouse(width w: CGFloat, height h: CGFloat) {
         collapseTimer?.invalidate()
         collapseTimer = nil
+        isCollapsing = false
 
         let size = paddedSize(w, h)
         let p = Self.shadowPadding
@@ -152,11 +155,13 @@ class OverlayPanel: NSPanel {
     /// Uses a Timer to drive the curve, updating window frame each tick.
     private func animateCollapse() {
         collapseTimer?.invalidate()
+        isCollapsing = true
 
         let duration: Double = 0.25
         let targetSize = paddedSize(20, 20)
         let p = Self.shadowPadding
-        let mouse = expansionMousePosition == .zero ? lastMousePosition : expansionMousePosition
+        // Collapse toward current mouse position so it doesn't teleport after animation
+        let mouse = lastMousePosition
         let targetOrigin = NSPoint(
             x: expandsRight
                 ? mouse.x - p
@@ -189,6 +194,7 @@ class OverlayPanel: NSPanel {
             if t >= 1.0 {
                 timer.invalidate()
                 self.collapseTimer = nil
+                self.isCollapsing = false
             }
         }
     }
@@ -220,6 +226,7 @@ class OverlayPanel: NSPanel {
     }
 
     func moveTo(_ point: NSPoint) {
+        guard !isCollapsing else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let p = Self.shadowPadding
