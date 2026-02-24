@@ -286,7 +286,7 @@ private struct BehaviorContextView: View {
     let text: String
 
     private var sections: [(header: String?, body: String)] {
-        let knownHeaders: Set<String> = ["Observation", "Insight", "Action"]
+        let knownHeaders: Set<String> = ["Observation", "Insight", "Action", "观察", "推测", "建议"]
         var result: [(header: String?, body: String)] = []
         var currentHeader: String? = nil
         var currentLines: [String] = []
