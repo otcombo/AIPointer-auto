@@ -14,7 +14,7 @@ struct BehaviorAnalysis {
         let showObservation = defaults.object(forKey: "focusShowObservation") as? Bool ?? true
         let showInsight = defaults.object(forKey: "focusShowInsight") as? Bool ?? true
         let showOffer = defaults.object(forKey: "focusShowOffer") as? Bool ?? true
-        let language = defaults.string(forKey: "responseLanguage") ?? "zh-CN"
+        let language = defaults.string(forKey: "responseLanguage") ?? defaultResponseLanguage
         let isChinese = language == "zh-CN"
         
         var parts: [String] = []
@@ -241,7 +241,7 @@ class BehaviorSensingService {
     }
 
     private func buildPrompt(events: [BehaviorEvent], skills: [(name: String, description: String)] = []) -> String {
-        let language = UserDefaults.standard.string(forKey: "responseLanguage") ?? "zh-CN"
+        let language = UserDefaults.standard.string(forKey: "responseLanguage") ?? defaultResponseLanguage
         let isChinese = language == "zh-CN"
         
         let formatter = DateFormatter()
