@@ -385,91 +385,51 @@ class FocusDetectionService {
         }
 
         return """
-        [FOCUS-DETECT] Below is a snapshot of the user's recent attention.
-        Determine if the user is sustained-focusing on a topic and whether you can help.
+        [FOCUS-DETECT] Determine if the user is sustained-focusing on a topic and whether you can help.
 
         --- Browsing Timeline ---
         \(timelineText)
         \(tabText.isEmpty ? "" : "\(tabText)\n")\(metricsText)
 
         \(skillsText.isEmpty ? "" : "\(skillsText)\n")--- Your capabilities ---
-        You can: read/write files, run scripts (Python/Node/Shell), operate browsers (Chromium),
+        Read/write files, run scripts (Python/Node/Shell), operate browsers (Chromium),
         read email, send messages, extract web content, search the web.
-        The installed skills listed above are tools you can use right now.
+        Installed skills above are tools you can use right now.
 
         --- Confidence criteria ---
 
-        Reply high (ALL must be true):
-        1. Can identify the user's specific research subject (e.g. "Kweichow Moutai", not vague "stocks")
-        2. Can give a specific actionable suggestion
-        3. \(highRequirement) are met:
-           - Revisit count >= 1
-           - Browsed tab ratio >= 40%
-           - Clipboard relevance >= 1
-           - Trigger app focus >= 60%
+        high (ALL must be true):
+        1. Specific research subject identified (e.g. "Kweichow Moutai", not vague "stocks")
+        2. Specific actionable suggestion possible
+        3. \(highRequirement) met: revisit≥1 | tabRatio≥40% | clipRelevance≥1 | appFocus≥60%
 
-        Reply medium (any one):
-        1. Can identify topic direction but not specific enough
-        2. Can help but need user to provide more info
+        medium: Can identify topic direction but not specific enough, or can help but need more info.
 
-        Reply detected:false:
-        1. Content is scattered, no theme
-        2. Or has a theme but cannot help
-        3. Or all objective metrics are unmet
+        detected:false: Scattered content, no theme, or has theme but cannot help, or all metrics unmet.
 
         --- Skill recommendation ---
-        1. Only recommend installedSkill if it DIRECTLY solves the user's topic. Generic tools (github, weather, coding-agent) do NOT count.
-        2. If no installed skill directly matches the topic, MUST provide searchKeywords.
-        3. searchKeywords should describe specific capabilities needed (e.g. "stock portfolio tracker"), not generic operations (e.g. "web scraping").
-        4. installedSkill and searchKeywords CAN coexist (installed helps partially + search for more specialized).
+        - Only recommend installedSkill if it DIRECTLY solves the user's topic (generic tools don't count)
+        - If no installed skill matches, provide searchKeywords (specific capabilities, not generic operations)
+        - installedSkill and searchKeywords CAN coexist
 
-        --- Response format (strict JSON, no other text) ---
-        Keep fields concise. User must understand at a glance.
-        Character limits: theme ≤ 30 chars, observation ≤ 200 chars, insight ≤ 120 chars, offer ≤ 200 chars.
+        --- Response format (strict JSON only) ---
+        Character limits: theme≤30, observation≤200, insight≤120, offer≤200.
 
-        All fields MUST NOT contain psychological analysis, emotional judgment, or motive speculation. You are a tool, not a therapist.
-        Only describe WHAT the user is doing, never WHY they are doing it or HOW they feel.
+        CRITICAL: No psychological analysis, emotional judgment, or motive speculation in any field.
 
-        theme: Only write topic keywords, no adjectives or modifiers.
-        ❌ "Compulsive portfolio monitoring crisis"  ❌ "强迫性股票检查焦虑"
-        ✅ "美股行情"  ✅ "Stock prices"
+        theme: Topic keywords only. ✅ "美股行情" ❌ "强迫性股票检查焦虑"
+        observation: Objective behavior facts only. ✅ "1分钟内在Yahoo和Robinhood间切换7次" ❌ "maintained compulsive checking cycle"
+        insight: Plain language, what user is doing. ✅ "在对比茅台和五粮液的股价" ❌ "进行多维度的行业横向对比研究"
+        offer: What you can do. If installedSkill set, mention it naturally. ✅ "可以帮你自动监控这6只股票，试试 portfolio-watcher"
 
-        observation: Only objective behavior facts (what was opened, how many switches, what was copied).
-        ❌ "User maintained compulsive checking cycle across multiple platforms"
-        ✅ "1分钟内在Yahoo和Robinhood间切换7次，浏览NFLX/TSLA/BTC/AAPL"
+        Installed skill helps:
+        {"detected":true,"confidence":"high/medium","theme":"...","observation":"...","insight":"...","offer":"...","installedSkill":"name"}
 
-        insight: Plain language, what the user is doing. No subjective judgment.
-        ❌ "用户正在进行多维度的行业横向对比研究"  ❌ "强迫检查完全复发"
-        ✅ "在对比茅台和五粮液的股价"
-        ❌ "User is exploring cross-platform investment opportunities"
-        ✅ "Comparing Moutai vs Wuliangye stock prices"
-
-        offer: Say what you can do. If recommending a skill, say it naturally like '可以帮你XXX，试试 skill-name' or 'I can help with XXX, try skill-name'.
-        If installedSkill is set, MUST mention it in offer naturally.
-        ❌ "You've been in this exhausting cycle for hours"
-        ❌ "推荐: stock-analysis, portfolio-watcher" (bare list)
-        ✅ "可以帮你自动监控这6只股票，试试 portfolio-watcher"
-        ✅ "I can track these stocks for you, try portfolio-watcher"
-
-        Each field focuses on ONE thing only. If the user is doing two unrelated things, only report the most prominent topic within the detection window.
-
-        Installed skill can help:
-        {"detected":true,"confidence":"high/medium","theme":"≤30 chars","observation":"≤200 chars","insight":"≤120 chars","offer":"≤200 chars","installedSkill":"skill-name"}
-
-        Need community skill search:
-        {"detected":true,"confidence":"high/medium","theme":"≤30 chars","observation":"≤200 chars","insight":"≤120 chars","offer":"≤200 chars","searchKeywords":["kw1","kw2"]}
-
-        Both installed + search:
-        {"detected":true,"confidence":"high/medium","theme":"≤30 chars","observation":"≤200 chars","insight":"≤120 chars","offer":"≤200 chars","installedSkill":"skill-name","searchKeywords":["kw1","kw2"]}
+        Need community skill:
+        {"detected":true,"confidence":"high/medium","theme":"...","observation":"...","insight":"...","offer":"...","searchKeywords":["kw1","kw2"]}
 
         No theme or cannot help:
         {"detected":false}
-
-        Example (Chinese):
-        {"detected":true,"confidence":"high","theme":"白酒股票研究","observation":"5分钟内浏览4个白酒股票页面，复制了600519","insight":"在对比茅台和五粮液的股价","offer":"可以帮你抓取实时数据做对比表格","searchKeywords":["stock analysis","portfolio tracker"]}
-
-        Example (English):
-        {"detected":true,"confidence":"high","theme":"Stock research","observation":"Browsed 4 liquor stock pages in 5 min, copied ticker 600519","insight":"Comparing Moutai vs Wuliangye stock prices","offer":"I can pull real-time data and build a comparison table","searchKeywords":["stock analysis","portfolio tracker"]}
         """
     }
 

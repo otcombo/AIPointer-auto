@@ -252,9 +252,11 @@ class BehaviorSensingService {
         if isChinese {
             lines.append("你在分析用户的桌面操作行为，检测重复模式并主动提供帮助。")
             lines.append("以下是用户最近的操作时间线。分析是否有重复模式。")
+            lines.append("重要：只描述客观行为事实，不做心理分析、情绪判断或动机猜测。")
         } else {
             lines.append("You are analyzing a user's desktop behavior to detect repetitive patterns and offer proactive help.")
             lines.append("Below is a timeline of recent user actions. Analyze for repetitive patterns.")
+            lines.append("Important: Only describe objective behavior facts. No psychological analysis, emotional judgment, or motive speculation.")
         }
         
         lines.append("")
@@ -297,27 +299,27 @@ class BehaviorSensingService {
         
         if isChinese {
             lines.append("""
-            {"confidence": "high|medium|low", "observation": "检测到什么模式", "insight": "为什么这样做", "offer": "如何帮忙"}
+            {"confidence": "high|medium|low", "observation": "检测到什么模式", "insight": "用户在做什么", "offer": "如何帮忙"}
             """)
             lines.append("")
             lines.append("规则：")
             lines.append("- confidence=high: 明确的重复模式，可以自动化")
             lines.append("- confidence=medium: 可能的模式，用户可能需要帮助")
             lines.append("- confidence=low: 没有明确模式或数据太少")
-            lines.append("- observation: 简洁描述用户在做什么（一句话，客观事实）")
-            lines.append("- insight: 为什么用户在这样做（一句话，推测意图）")
+            lines.append("- observation: 客观事实（一句话，如「30秒内在A和B间切换4次」）")
+            lines.append("- insight: 用户在做什么（一句话，如「在对比两个产品的价格」，不分析情绪或动机）")
             lines.append("- offer: 你能提供的具体可操作帮助（一句话）")
         } else {
             lines.append("""
-            {"confidence": "high|medium|low", "observation": "what pattern you detected", "insight": "why they are doing it", "offer": "how you can help"}
+            {"confidence": "high|medium|low", "observation": "what pattern you detected", "insight": "what the user is doing", "offer": "how you can help"}
             """)
             lines.append("")
             lines.append("Rules:")
             lines.append("- confidence=high: clear repetitive pattern that could be automated")
             lines.append("- confidence=medium: likely pattern, user might benefit from help")
             lines.append("- confidence=low: no clear pattern or too little data")
-            lines.append("- observation: concise description of what the user is doing (1 sentence, objective facts)")
-            lines.append("- insight: why the user is doing it (1 sentence, infer intent)")
+            lines.append("- observation: objective facts only (1 sentence, e.g. 'Switched between A and B 4 times in 30s')")
+            lines.append("- insight: what the user is doing (1 sentence, e.g. 'Comparing prices of two products', no emotion/motive analysis)")
             lines.append("- offer: specific actionable help you can provide (1 sentence)")
         }
 
