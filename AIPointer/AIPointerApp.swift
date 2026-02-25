@@ -27,6 +27,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
     private var isEnabled = true
     private var isFollowingMouse = true
+    private var onboardingWindow: NSWindow?
 
     // Screenshot support
     private var screenshotViewModel: ScreenshotViewModel?
@@ -39,7 +40,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         swizzleCharacterPalette()
         setupMenuBar()
-        checkPermissionsAndStart()
+
+        // 首次启动显示 onboarding，否则直接启动
+        if !UserDefaults.standard.bool(forKey: "onboardingCompleted") {
+            showOnboarding()
+        } else {
+            checkPermissionsAndStart()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -75,6 +82,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(quitItem)
 
         statusItem.menu = menu
+    }
+
+    // MARK: - Onboarding
+
+    private func showOnboarding() {
+        NSApp.setActivationPolicy(.regular) // 临时显示 Dock 图标以便用户交互
+
+        let onboardingView = OnboardingView {
+            // 完成回调
+            UserDefaults.standard.set(true, forKey: "onboardingCompleted")
+            self.onboardingWindow?.close()
+            self.onboardingWindow = nil
+            NSApp.setActivationPolicy(.accessory) // 恢复为无 Dock 图标
+            self.checkPermissionsAndStart()
+        }
+
+        let hostingController = NSHostingController(rootView: onboardingView)
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "AIPointer 设置向导"
+        window.styleMask = [.titled, .closable]
+        window.setContentSize(NSSize(width: 520, height: 480))
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        onboardingWindow = window
     }
 
     /// Swizzle NSApplication.orderFrontCharacterPalette as extra safety layer.
