@@ -44,10 +44,16 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
 
-                // 连接测试
+                // 连接测试 & 终端配置
                 HStack {
                     Button("测试连接") {
                         testConnection()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                    Button("打开终端配置") {
+                        openTerminalForAdvancedConfig()
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -63,6 +69,9 @@ struct SettingsView: View {
                         }
                     }
                 }
+                Text("在终端中配置 API Key、模型等高级选项")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
 
             Section("Behavior Sensing") {
@@ -200,6 +209,21 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 380, height: 640)
+    }
+
+    // MARK: - 终端配置
+
+    private func openTerminalForAdvancedConfig() {
+        let script = """
+        tell application "Terminal"
+            activate
+            do script "echo '=== OpenClaw 高级配置 ===' && echo '' && echo '查看当前状态:' && openclaw status 2>/dev/null || echo 'openclaw 未找到' && echo '' && echo '编辑配置: openclaw config edit' && echo '查看帮助: openclaw --help'"
+        end tell
+        """
+        if let appleScript = NSAppleScript(source: script) {
+            var error: NSDictionary?
+            appleScript.executeAndReturnError(&error)
+        }
     }
 
     // MARK: - 连接测试

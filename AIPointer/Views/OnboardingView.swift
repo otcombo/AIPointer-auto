@@ -344,6 +344,44 @@ struct OnboardingView: View {
                 }
             }
 
+            // API Key 配置引导（Gateway 运行后显示）
+            if openClawSetup.gatewayStatus == .running {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "key.fill")
+                            .font(.title2)
+                            .frame(width: 32)
+                            .foregroundColor(.accentColor)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("配置 API Key")
+                                .font(.headline)
+                            Text("OpenClaw 需要 LLM 提供商的 API Key 才能工作")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Spacer()
+
+                        Button("打开终端配置") {
+                            openClawSetup.openTerminalForConfig()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.accentColor.opacity(0.06))
+                    )
+
+                    Text("在终端中运行 `openclaw config edit` 添加你的 API Key（如 OpenAI、Anthropic 等）")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.leading, 4)
+                }
+            }
+
             HStack {
                 Image(systemName: "info.circle")
                     .foregroundColor(.secondary)
