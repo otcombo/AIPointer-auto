@@ -19,6 +19,8 @@ struct SettingsView: View {
     @AppStorage("suggestionDisplaySeconds") private var suggestionDisplaySeconds = 10.0
     @AppStorage("debugMaterial") private var debugMaterial: Int = 13 // .hudWindow
     @State private var debugCycling = false
+    @State private var connectionStatus: String?
+    @State private var connectionOk: Bool = false
 
     var body: some View {
         Form {
@@ -41,6 +43,26 @@ struct SettingsView: View {
                 Text("Language for AI responses and behavior sensing suggestions.")
                     .font(.caption)
                     .foregroundColor(.secondary)
+
+                // 连接测试
+                HStack {
+                    Button("测试连接") {
+                        testConnection()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                    if let status = connectionStatus {
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(connectionOk ? Color.green : Color.red)
+                                .frame(width: 8, height: 8)
+                            Text(status)
+                                .font(.caption)
+                                .foregroundColor(connectionOk ? .green : .red)
+                        }
+                    }
+                }
             }
 
             Section("Behavior Sensing") {
@@ -178,6 +200,37 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 380, height: 640)
+    }
+
+    // MARK: - 连接测试
+
+    private func testConnection() {
+        connectionStatus = "测试中..."
+        connectionOk = false
+
+        let urlString = backendURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: "\(urlString)/api/health") else {
+            connectionStatus = "无效的 URL"
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+
+        Task {
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                if let httpResponse = response as? HTTPURLResponse,
+                   (200...299).contains(httpResponse.statusCode) {
+                    connectionStatus = "连接成功"
+                    connectionOk = true
+                } else {
+                    connectionStatus = "服务器返回错误"
+                }
+            } catch {
+                connectionStatus = "无法连接"
+            }
+        }
     }
 }
 
