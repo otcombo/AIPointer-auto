@@ -7,16 +7,19 @@ struct OnboardingView: View {
     @AppStorage("agentId") private var agentId = "main"
     @AppStorage("responseLanguage") private var responseLanguage = "zh-CN"
 
+    @StateObject private var openClawSetup = OpenClawSetupService()
     @State private var currentStep: Step = .welcome
     @State private var pollTimer: Timer?
+    @State private var gatewayPollTimer: Timer?
 
     var onComplete: () -> Void
 
     enum Step: Int, CaseIterable {
         case welcome = 0
         case permissions = 1
-        case configure = 2
-        case ready = 3
+        case openclawSetup = 2
+        case configure = 3
+        case ready = 4
     }
 
     var body: some View {
@@ -33,6 +36,8 @@ struct OnboardingView: View {
                     welcomeStep
                 case .permissions:
                     permissionsStep
+                case .openclawSetup:
+                    openclawSetupStep
                 case .configure:
                     configureStep
                 case .ready:
@@ -54,6 +59,7 @@ struct OnboardingView: View {
         }
         .onDisappear {
             pollTimer?.invalidate()
+            gatewayPollTimer?.invalidate()
         }
     }
 
@@ -222,7 +228,240 @@ struct OnboardingView: View {
         )
     }
 
-    // MARK: - Step 3: Configure
+    // MARK: - Step 3: OpenClaw Setup
+
+    private var openclawSetupStep: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("OpenClaw 后端")
+                .font(.title2)
+                .fontWeight(.bold)
+
+            Text("AIPointer 需要 OpenClaw 作为 AI 后端。检测本机安装状态...")
+                .font(.body)
+                .foregroundColor(.secondary)
+
+            // 安装状态卡片
+            VStack(spacing: 12) {
+                // 安装检测
+                HStack(spacing: 12) {
+                    Image(systemName: installStatusIcon)
+                        .font(.title2)
+                        .frame(width: 32)
+                        .foregroundColor(installStatusColor)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("OpenClaw 安装")
+                            .font(.headline)
+                        Text(installStatusText)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer()
+
+                    if !openClawSetup.installStatus.isInstalled {
+                        Button("安装") {
+                            openClawSetup.openTerminalWithInstall()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    } else {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.title2)
+                            .foregroundColor(.green)
+                    }
+                }
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(openClawSetup.installStatus.isInstalled
+                              ? Color.green.opacity(0.06)
+                              : Color.orange.opacity(0.06))
+                )
+
+                // Gateway 状态（仅安装后显示）
+                if openClawSetup.installStatus.isInstalled {
+                    HStack(spacing: 12) {
+                        Image(systemName: gatewayStatusIcon)
+                            .font(.title2)
+                            .frame(width: 32)
+                            .foregroundColor(gatewayStatusColor)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Gateway 服务")
+                                .font(.headline)
+                            Text(gatewayStatusText)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Spacer()
+
+                        if openClawSetup.gatewayStatus == .stopped {
+                            Button("启动") {
+                                openClawSetup.startGatewayInTerminal()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                        } else if openClawSetup.gatewayStatus == .running {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.title2)
+                                .foregroundColor(.green)
+                        }
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(openClawSetup.gatewayStatus == .running
+                                  ? Color.green.opacity(0.06)
+                                  : Color.secondary.opacity(0.06))
+                    )
+                }
+            }
+
+            // 安装说明
+            if !openClawSetup.installStatus.isInstalled {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("安装命令：")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(OpenClawSetupService.installCommand)
+                        .font(.system(.caption, design: .monospaced))
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.black.opacity(0.05))
+                        .cornerRadius(6)
+
+                    Text("安装完成后点击"重新检测"")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Button("重新检测") {
+                        openClawSetup.checkInstallation()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+
+            // API Key 配置引导（Gateway 运行后显示）
+            if openClawSetup.gatewayStatus == .running {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "key.fill")
+                            .font(.title2)
+                            .frame(width: 32)
+                            .foregroundColor(.accentColor)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("配置 API Key")
+                                .font(.headline)
+                            Text("OpenClaw 需要 LLM 提供商的 API Key 才能工作")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Spacer()
+
+                        Button("打开终端配置") {
+                            openClawSetup.openTerminalForConfig()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.accentColor.opacity(0.06))
+                    )
+
+                    Text("在终端中运行 `openclaw config edit` 添加你的 API Key（如 OpenAI、Anthropic 等）")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.leading, 4)
+                }
+            }
+
+            HStack {
+                Image(systemName: "info.circle")
+                    .foregroundColor(.secondary)
+                Text("也可连接远程 OpenClaw 服务器，跳过本步骤在下一步配置地址")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.top, 4)
+
+            Spacer()
+        }
+        .onAppear {
+            openClawSetup.checkInstallation()
+            startGatewayPolling()
+        }
+        .onDisappear {
+            stopGatewayPolling()
+        }
+    }
+
+    // OpenClaw Setup 辅助计算属性
+    private var installStatusIcon: String {
+        switch openClawSetup.installStatus {
+        case .checking: return "arrow.clockwise"
+        case .installed: return "shippingbox.fill"
+        case .notInstalled: return "shippingbox"
+        case .error: return "exclamationmark.triangle"
+        }
+    }
+
+    private var installStatusColor: Color {
+        switch openClawSetup.installStatus {
+        case .checking: return .secondary
+        case .installed: return .green
+        case .notInstalled: return .orange
+        case .error: return .red
+        }
+    }
+
+    private var installStatusText: String {
+        switch openClawSetup.installStatus {
+        case .checking: return "检测中..."
+        case .installed(let path):
+            if let ver = openClawSetup.version {
+                return "已安装 \(ver) — \(path)"
+            }
+            return "已安装 — \(path)"
+        case .notInstalled: return "未检测到 OpenClaw"
+        case .error(let msg): return "检测出错：\(msg)"
+        }
+    }
+
+    private var gatewayStatusIcon: String {
+        switch openClawSetup.gatewayStatus {
+        case .unknown: return "arrow.clockwise"
+        case .running: return "bolt.fill"
+        case .stopped: return "bolt.slash"
+        case .error: return "exclamationmark.triangle"
+        }
+    }
+
+    private var gatewayStatusColor: Color {
+        switch openClawSetup.gatewayStatus {
+        case .unknown: return .secondary
+        case .running: return .green
+        case .stopped: return .orange
+        case .error: return .red
+        }
+    }
+
+    private var gatewayStatusText: String {
+        switch openClawSetup.gatewayStatus {
+        case .unknown: return "检测中..."
+        case .running: return "Gateway 正在运行"
+        case .stopped: return "Gateway 未运行"
+        case .error(let msg): return "错误：\(msg)"
+        }
+    }
+
+    // MARK: - Step 4: Configure
 
     private var configureStep: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -341,6 +580,7 @@ struct OnboardingView: View {
         case .welcome: return "开始设置"
         case .permissions:
             return permissions.allRequiredGranted ? "下一步" : "请先开启必需权限"
+        case .openclawSetup: return "下一步"
         case .configure: return "完成"
         case .ready: return "开始使用"
         }
@@ -359,5 +599,21 @@ struct OnboardingView: View {
     private func stopPermissionPolling() {
         pollTimer?.invalidate()
         pollTimer = nil
+    }
+
+    // MARK: - Gateway Polling
+
+    private func startGatewayPolling() {
+        openClawSetup.checkGatewayStatus(baseURL: backendURL)
+        gatewayPollTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
+            Task { @MainActor in
+                openClawSetup.checkGatewayStatus(baseURL: backendURL)
+            }
+        }
+    }
+
+    private func stopGatewayPolling() {
+        gatewayPollTimer?.invalidate()
+        gatewayPollTimer = nil
     }
 }
