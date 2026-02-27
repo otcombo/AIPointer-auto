@@ -13,6 +13,7 @@ class OpenClawService: NSObject, URLSessionDataDelegate {
     private var authToken = ""
     private var messages: [[String: Any]] = []
     private var activeSession: URLSession?
+    private var hasLoggedConfig = false
 
     // Colorist gateway for direct Anthropic Messages API (supports images)
     private var coloristBaseURL = ""
@@ -37,10 +38,13 @@ class OpenClawService: NSObject, URLSessionDataDelegate {
             self.coloristAPIKey = config.coloristAPIKey
             self.coloristModel = config.coloristModel
         }
-        NSLog("[API] configured: openclaw=%@ colorist=%@ model=%@",
-              self.baseURL,
-              coloristBaseURL.isEmpty ? "(none)" : coloristBaseURL,
-              coloristModel.isEmpty ? "(none)" : coloristModel)
+        if !hasLoggedConfig {
+            hasLoggedConfig = true
+            NSLog("[API] configured: openclaw=%@ colorist=%@ model=%@",
+                  self.baseURL,
+                  coloristBaseURL.isEmpty ? "(none)" : coloristBaseURL,
+                  coloristModel.isEmpty ? "(none)" : coloristModel)
+        }
     }
 
     private struct OpenClawConfig {

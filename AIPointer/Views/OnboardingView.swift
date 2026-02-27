@@ -28,15 +28,15 @@ struct OnboardingView: View {
         currentStep == .fnKey || currentStep == .autoVerify || currentStep == .smartSuggest
     }
 
-    private static let videoDir = "/Users/otcombo/Documents/Playgrounds/AIPointer Video"
-
-    private var videoFileName: String? {
+    private var videoURL: URL? {
+        let name: String
         switch currentStep {
-        case .fnKey:        return "AIPointer-Feature-1.mp4"
-        case .autoVerify:   return "AIPointer-Feature-2.mp4"
-        case .smartSuggest: return "AIPointer-Feature-3.mp4"
+        case .fnKey:        name = "AIPointer-Feature-1"
+        case .autoVerify:   name = "AIPointer-Feature-2"
+        case .smartSuggest: name = "AIPointer-Feature-3"
         default:            return nil
         }
+        return Bundle.module.url(forResource: name, withExtension: "mp4")
     }
 
     var body: some View {
@@ -100,8 +100,8 @@ struct OnboardingView: View {
                         .stroke(Color.black.opacity(0.04), lineWidth: 1)
                 )
 
-            if let fileName = videoFileName {
-                LoopingVideoPlayer(url: URL(fileURLWithPath: "\(Self.videoDir)/\(fileName)"))
+            if let url = videoURL {
+                LoopingVideoPlayer(url: url)
                     .aspectRatio(16/9, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             }
