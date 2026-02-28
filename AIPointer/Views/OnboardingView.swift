@@ -5,15 +5,16 @@ import AVKit
 struct OnboardingView: View {
     @StateObject private var permissions = PermissionChecker()
     @StateObject private var openClawSetup = OpenClawSetupService()
-    @AppStorage("backendURL") private var backendURL = "http://localhost:18789"
-    @AppStorage("agentId") private var agentId = "main"
-    @AppStorage("responseLanguage") private var responseLanguage = defaultResponseLanguage
 
     @State private var currentStep: Step = .fnKey
     @State private var pollTimer: Timer?
-    @State private var gatewayPollTimer: Timer?
     @State private var clickedPermissions: Set<String> = []
     @State private var pollsSinceFirstClick = 0
+
+    // API Key input state
+    @State private var selectedProvider: String = "anthropic"
+    @State private var apiKeyInput: String = ""
+    @State private var showPatienceMessage: Bool = false
 
     var onComplete: () -> Void
 
@@ -23,7 +24,6 @@ struct OnboardingView: View {
         case smartSuggest = 2
         case permissions = 3
         case openclawSetup = 4
-        case configure = 5
     }
 
     private var showsIllustration: Bool {
@@ -74,7 +74,6 @@ struct OnboardingView: View {
         }
         .onDisappear {
             pollTimer?.invalidate()
-            gatewayPollTimer?.invalidate()
         }
     }
 
@@ -87,7 +86,6 @@ struct OnboardingView: View {
         case .smartSuggest:  return L("行为感知，主动推荐", "Behavior-Aware Suggestions")
         case .permissions:   return L("系统权限", "System Permissions")
         case .openclawSetup: return L("OpenClaw 后端", "OpenClaw Backend")
-        case .configure:     return L("连接设置", "Connection Settings")
         }
     }
 
@@ -121,7 +119,6 @@ struct OnboardingView: View {
         case .smartSuggest:  smartSuggestContent
         case .permissions:   permissionsContent
         case .openclawSetup: openclawSetupContent
-        case .configure:     configureContent
         }
     }
 
@@ -299,260 +296,240 @@ struct OnboardingView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Step 5: OpenClaw Setup
+    // MARK: - Step 5: OpenClaw Setup (4-phase checklist)
 
     private var openclawSetupContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-                Text(L("AIPointer 需要 OpenClaw 作为 AI 后端。",
-                       "AIPointer requires OpenClaw as its AI backend."))
+                Text(L("AIPointer 正在自动配置 OpenClaw 后端。",
+                       "AIPointer is automatically configuring the OpenClaw backend."))
                     .font(.system(size: 14))
                     .foregroundColor(.black.opacity(0.6))
 
-                // Install status
-                statusRow(
-                    icon: installStatusIcon,
-                    iconColor: installStatusColor,
-                    title: L("OpenClaw 安装", "OpenClaw Installation"),
-                    subtitle: installStatusText,
-                    trailing: {
-                        if !openClawSetup.installStatus.isInstalled {
-                            smallActionButton(L("安装", "Install")) {
-                                openClawSetup.openTerminalWithInstall()
-                            }
-                        }
+                VStack(spacing: 6) {
+                    phaseRow(.install,
+                             icon: "shippingbox.fill",
+                             title: L("安装 OpenClaw", "Install OpenClaw"))
+                    phaseRow(.gateway,
+                             icon: "bolt.fill",
+                             title: L("启动 Gateway", "Start Gateway"))
+                    phaseRow(.apiKey,
+                             icon: "key.fill",
+                             title: L("配置 API Key", "Configure API Key"))
+                    phaseRow(.verify,
+                             icon: "checkmark.shield.fill",
+                             title: L("验证连接", "Verify Connection"))
+                }
+
+                // API Key input section
+                if openClawSetup.phaseStatuses[.apiKey] == .needsInput {
+                    apiKeyInputSection
+                }
+
+                // Patience message for long install
+                if showPatienceMessage {
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock").font(.system(size: 11))
+                        Text(L("安装时间较长，请耐心等待",
+                               "Installation is taking a while, please be patient"))
+                            .font(.system(size: 11))
                     }
-                )
-
-                // Gateway status (only after installed)
-                if openClawSetup.installStatus.isInstalled {
-                    statusRow(
-                        icon: gatewayStatusIcon,
-                        iconColor: gatewayStatusColor,
-                        title: L("Gateway 服务", "Gateway Service"),
-                        subtitle: gatewayStatusText,
-                        trailing: {
-                            if openClawSetup.gatewayStatus == .stopped {
-                                smallActionButton(L("启动", "Start")) {
-                                    openClawSetup.startGatewayInTerminal()
-                                }
-                            }
-                        }
-                    )
+                    .foregroundColor(.orange)
                 }
-
-                // API Key config (only after gateway running)
-                if openClawSetup.gatewayStatus == .running {
-                    statusRow(
-                        icon: "key.fill",
-                        iconColor: .orange,
-                        title: L("配置 API Key", "Configure API Key"),
-                        subtitle: L("OpenClaw 需要 LLM 提供商的 API Key",
-                                   "OpenClaw needs an LLM provider API Key"),
-                        trailing: {
-                            smallActionButton(L("打开终端", "Open Terminal")) {
-                                openClawSetup.openTerminalForConfig()
-                            }
-                        }
-                    )
-                }
-
-                // Install command hint
-                if !openClawSetup.installStatus.isInstalled {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(OpenClawSetupService.installCommand)
-                            .font(.system(size: 11, design: .monospaced))
-                            .padding(8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.black.opacity(0.04))
-                            .cornerRadius(8)
-
-                        Button(action: { openClawSetup.checkInstallation() }) {
-                            Text(L("重新检测", "Re-check"))
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(.black.opacity(0.6))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-
-                HStack(spacing: 4) {
-                    Image(systemName: "info.circle").font(.system(size: 11))
-                    Text(L("也可连接远程 OpenClaw 服务器，跳过本步骤在下一步配置",
-                           "You can also connect to a remote OpenClaw server in the next step"))
-                        .font(.system(size: 11))
-                }
-                .foregroundColor(.black.opacity(0.35))
             }
         }
         .onAppear {
-            openClawSetup.checkInstallation()
-            startGatewayPolling()
+            openClawSetup.runFullSetup()
+            // Show patience message after 3 minutes
+            DispatchQueue.main.asyncAfter(deadline: .now() + 180) {
+                if case .inProgress = openClawSetup.phaseStatuses[.install] ?? .pending {
+                    showPatienceMessage = true
+                }
+            }
         }
-        .onDisappear { stopGatewayPolling() }
     }
 
-    private func statusRow<Trailing: View>(
-        icon: String, iconColor: Color,
-        title: String, subtitle: String,
-        @ViewBuilder trailing: () -> Trailing
-    ) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 14))
+    private func phaseRow(_ phase: OpenClawSetupService.SetupPhase, icon: String, title: String) -> some View {
+        let status = openClawSetup.phaseStatuses[phase] ?? .pending
+
+        return HStack(spacing: 10) {
+            phaseStatusIcon(status, defaultIcon: icon)
                 .frame(width: 24)
-                .foregroundColor(iconColor)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.black)
-                Text(subtitle)
-                    .font(.system(size: 11))
-                    .foregroundColor(.black.opacity(0.4))
+
+                if let subtitle = phaseSubtitle(status) {
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundColor(.black.opacity(0.4))
+                }
             }
 
             Spacer()
 
-            trailing()
+            if case .failed = status {
+                Button(action: { retryPhase(phase) }) {
+                    Text(L("重试", "Retry"))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 5)
+                        .background(Color.black)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.black.opacity(0.03))
+                .fill(phaseRowBackground(status))
         )
     }
 
-    private func smallActionButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
-                .background(Color.black)
-                .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
-
-    // OpenClaw status helpers
-    private var installStatusIcon: String {
-        switch openClawSetup.installStatus {
-        case .checking:     return "arrow.clockwise"
-        case .installed:    return "shippingbox.fill"
-        case .notInstalled: return "shippingbox"
-        case .error:        return "exclamationmark.triangle"
-        }
-    }
-
-    private var installStatusColor: Color {
-        switch openClawSetup.installStatus {
-        case .checking:     return .secondary
-        case .installed:    return .green
-        case .notInstalled: return .orange
-        case .error:        return .red
+    @ViewBuilder
+    private func phaseStatusIcon(_ status: OpenClawSetupService.PhaseStatus, defaultIcon: String) -> some View {
+        switch status {
+        case .pending:
+            Image(systemName: "circle")
+                .font(.system(size: 14))
+                .foregroundColor(.black.opacity(0.2))
+        case .inProgress:
+            ProgressView()
+                .controlSize(.small)
+        case .succeeded:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 16))
+                .foregroundColor(.green)
+        case .failed:
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.system(size: 16))
+                .foregroundColor(.red)
+        case .needsInput:
+            Image(systemName: "key.fill")
+                .font(.system(size: 14))
+                .foregroundColor(.orange)
         }
     }
 
-    private var installStatusText: String {
-        switch openClawSetup.installStatus {
-        case .checking:
-            return L("检测中...", "Checking...")
-        case .installed(let path):
-            if let ver = openClawSetup.version {
-                return L("已安装 \(ver) — \(path)", "Installed \(ver) — \(path)")
-            }
-            return L("已安装 — \(path)", "Installed — \(path)")
-        case .notInstalled:
-            return L("未检测到 OpenClaw", "OpenClaw not found")
-        case .error(let msg):
-            return L("检测出错：\(msg)", "Error: \(msg)")
+    private func phaseSubtitle(_ status: OpenClawSetupService.PhaseStatus) -> String? {
+        switch status {
+        case .inProgress(let text): return text
+        case .succeeded(let text): return text.isEmpty ? nil : text
+        case .failed(let text): return text
+        case .needsInput: return L("需要输入 API Key", "API Key required")
+        case .pending: return nil
         }
     }
 
-    private var gatewayStatusIcon: String {
-        switch openClawSetup.gatewayStatus {
-        case .unknown: return "arrow.clockwise"
-        case .running: return "bolt.fill"
-        case .stopped: return "bolt.slash"
-        case .error:   return "exclamationmark.triangle"
+    private func phaseRowBackground(_ status: OpenClawSetupService.PhaseStatus) -> Color {
+        switch status {
+        case .succeeded: return Color.green.opacity(0.05)
+        case .failed: return Color.red.opacity(0.05)
+        case .needsInput: return Color.orange.opacity(0.05)
+        default: return Color.black.opacity(0.03)
         }
     }
 
-    private var gatewayStatusColor: Color {
-        switch openClawSetup.gatewayStatus {
-        case .unknown: return .secondary
-        case .running: return .green
-        case .stopped: return .orange
-        case .error:   return .red
-        }
+    private func retryPhase(_ phase: OpenClawSetupService.SetupPhase) {
+        openClawSetup.runFullSetup()
     }
 
-    private var gatewayStatusText: String {
-        switch openClawSetup.gatewayStatus {
-        case .unknown:      return L("检测中...", "Checking...")
-        case .running:      return L("Gateway 正在运行", "Gateway is running")
-        case .stopped:      return L("Gateway 未运行", "Gateway is not running")
-        case .error(let m): return L("错误：\(m)", "Error: \(m)")
-        }
-    }
+    // MARK: - API Key Input Section
 
-    // MARK: - Step 6: Configure
+    private var apiKeyInputSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Provider selector
+            VStack(alignment: .leading, spacing: 4) {
+                Text(L("LLM 提供商", "LLM Provider"))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.black)
 
-    private var configureContent: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(L("配置 OpenClaw 后端连接。如果不确定，保持默认即可。",
-                       "Configure the OpenClaw backend connection. Keep defaults if unsure."))
-                    .font(.system(size: 14))
-                    .foregroundColor(.black.opacity(0.6))
-
-                VStack(alignment: .leading, spacing: 10) {
-                    sectionLabel(L("服务器连接", "SERVER CONNECTION"))
-                    fieldGroup(label: "Server URL", placeholder: "http://localhost:18789", text: $backendURL)
-                    fieldGroup(label: "Agent ID", placeholder: "main", text: $agentId)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(L("回复语言", "Response Language"))
-                            .font(.system(size: 13, weight: .medium))
+                Menu {
+                    Button("Anthropic") { selectedProvider = "anthropic" }
+                    Button("OpenAI") { selectedProvider = "openai" }
+                    Button("OpenRouter") { selectedProvider = "openrouter" }
+                    Menu(L("更多...", "More...")) {
+                        Button("Google") { selectedProvider = "google" }
+                        Button("Groq") { selectedProvider = "groq" }
+                        Button("Mistral") { selectedProvider = "mistral" }
+                        Button("xAI") { selectedProvider = "xai" }
+                        Button("Cerebras") { selectedProvider = "cerebras" }
+                    }
+                } label: {
+                    HStack {
+                        Text(providerDisplayName(selectedProvider))
+                            .font(.system(size: 13))
                             .foregroundColor(.black)
-                        Picker("", selection: $responseLanguage) {
-                            Text("中文").tag("zh-CN")
-                            Text("English").tag("en")
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
+                        Spacer()
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 10))
+                            .foregroundColor(.black.opacity(0.4))
                     }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color.black.opacity(0.15), lineWidth: 1)
+                    )
                 }
+                .menuStyle(.borderlessButton)
+            }
 
-                Divider()
+            // API Key input
+            VStack(alignment: .leading, spacing: 4) {
+                Text("API Key")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.black)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    sectionLabel(L("配置文件", "CONFIG FILES"))
-                    configCheckRow(
-                        icon: "doc.text",
-                        title: "~/.openclaw/openclaw.json",
-                        desc: L("API 密钥、模型配置、网关认证 Token",
-                               "API keys, model config, gateway auth token")
-                    )
-                    configCheckRow(
-                        icon: "envelope",
-                        title: "himalaya CLI + IMAP",
-                        desc: L("验证码自动填充功能所需，brew install himalaya",
-                               "Required for auto-fill verification codes — brew install himalaya")
-                    )
+                HStack(spacing: 8) {
+                    SecureField("sk-...", text: $apiKeyInput)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 13))
 
-                    HStack(spacing: 4) {
-                        Image(systemName: "info.circle").font(.system(size: 11))
-                        Text(L("如果只用对话功能，配置 openclaw.json 即可",
-                               "For chat only, just configure openclaw.json"))
-                            .font(.system(size: 11))
+                    Button(action: {
+                        guard !apiKeyInput.isEmpty else { return }
+                        openClawSetup.continueAfterAPIKey(provider: selectedProvider, apiKey: apiKeyInput)
+                    }) {
+                        Text(L("保存", "Save"))
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 7)
+                            .background(apiKeyInput.isEmpty ? Color.black.opacity(0.3) : Color.black)
+                            .clipShape(Capsule())
                     }
-                    .foregroundColor(.black.opacity(0.35))
+                    .buttonStyle(.plain)
+                    .disabled(apiKeyInput.isEmpty)
                 }
             }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.orange.opacity(0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.orange.opacity(0.2), lineWidth: 1)
+                )
+        )
+    }
+
+    private func providerDisplayName(_ provider: String) -> String {
+        switch provider {
+        case "anthropic":   return "Anthropic"
+        case "openai":      return "OpenAI"
+        case "openrouter":  return "OpenRouter"
+        case "google":      return "Google"
+        case "groq":        return "Groq"
+        case "mistral":     return "Mistral"
+        case "xai":         return "xAI"
+        case "cerebras":    return "Cerebras"
+        default:            return provider
         }
     }
 
@@ -573,35 +550,6 @@ struct OnboardingView: View {
                 .font(.system(size: 13))
                 .foregroundColor(.black.opacity(0.5))
                 .lineLimit(2)
-        }
-    }
-
-    private func configCheckRow(icon: String, title: String, desc: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 13))
-                .frame(width: 20, height: 18)
-                .foregroundColor(.black.opacity(0.5))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(size: 13, weight: .medium)).foregroundColor(.black)
-                Text(desc).font(.system(size: 12)).foregroundColor(.black.opacity(0.45))
-            }
-        }
-    }
-
-    private func sectionLabel(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundColor(.black.opacity(0.35))
-            .textCase(.uppercase)
-    }
-
-    private func fieldGroup(label: String, placeholder: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label).font(.system(size: 13, weight: .medium)).foregroundColor(.black)
-            TextField(placeholder, text: text)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 13))
         }
     }
 
@@ -640,7 +588,7 @@ struct OnboardingView: View {
             onboardingButton(nextButtonTitle) {
                 if currentStep == .permissions && shouldOfferRelaunch {
                     relaunchApp()
-                } else if currentStep == .configure {
+                } else if currentStep == .openclawSetup {
                     onComplete()
                 } else {
                     withAnimation(.easeInOut(duration: 0.25)) {
@@ -682,13 +630,23 @@ struct OnboardingView: View {
             } else {
                 return L("请先开启权限", "Grant permissions first")
             }
-        case .openclawSetup: return L("下一步", "Next")
-        case .configure:     return L("开始使用", "Get Started")
+        case .openclawSetup:
+            if openClawSetup.allPhasesSucceeded {
+                return L("开始使用", "Get Started")
+            } else {
+                return L("设置中...", "Setting up...")
+            }
         }
     }
 
     private var isNextDisabled: Bool {
-        currentStep == .permissions && !permissions.allRequiredGranted && !shouldOfferRelaunch
+        if currentStep == .permissions && !permissions.allRequiredGranted && !shouldOfferRelaunch {
+            return true
+        }
+        if currentStep == .openclawSetup && !openClawSetup.allPhasesSucceeded {
+            return true
+        }
+        return false
     }
 
     // MARK: - Permission Relaunch Logic
@@ -741,22 +699,6 @@ struct OnboardingView: View {
     private func stopPermissionPolling() {
         pollTimer?.invalidate()
         pollTimer = nil
-    }
-
-    // MARK: - Gateway Polling
-
-    private func startGatewayPolling() {
-        openClawSetup.checkGatewayStatus(baseURL: backendURL)
-        gatewayPollTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
-            Task { @MainActor in
-                openClawSetup.checkGatewayStatus(baseURL: backendURL)
-            }
-        }
-    }
-
-    private func stopGatewayPolling() {
-        gatewayPollTimer?.invalidate()
-        gatewayPollTimer = nil
     }
 }
 
