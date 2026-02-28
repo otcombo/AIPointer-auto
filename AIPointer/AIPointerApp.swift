@@ -121,7 +121,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.backgroundColor = .clear
         window.hasShadow = false
         window.level = .normal
-        window.setContentSize(NSSize(width: 600, height: 600))
+        window.setContentSize(NSSize(width: 640, height: 656))
         window.center()
         window.isReleasedWhenClosed = false
         window.delegate = self
