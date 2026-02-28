@@ -7,47 +7,12 @@ class OpenClawSetupService: ObservableObject {
 
     // MARK: - 状态枚举
 
-    enum InstallStatus: Equatable {
-        case checking
-        case installed(path: String)
-        case notInstalled
-        case error(String)
-
-        static func == (lhs: InstallStatus, rhs: InstallStatus) -> Bool {
-            switch (lhs, rhs) {
-            case (.checking, .checking): return true
-            case (.installed(let a), .installed(let b)): return a == b
-            case (.notInstalled, .notInstalled): return true
-            case (.error(let a), .error(let b)): return a == b
-            default: return false
-            }
-        }
-
-        var isInstalled: Bool {
-            if case .installed = self { return true }
-            return false
-        }
-    }
-
-    enum GatewayStatus: Equatable {
-        case unknown
-        case running
-        case stopped
-        case error(String)
-
-        static func == (lhs: GatewayStatus, rhs: GatewayStatus) -> Bool {
-            switch (lhs, rhs) {
-            case (.unknown, .unknown): return true
-            case (.running, .running): return true
-            case (.stopped, .stopped): return true
-            case (.error(let a), .error(let b)): return a == b
-            default: return false
-            }
-        }
-    }
-
-    enum SetupPhase: Int, CaseIterable {
+    enum SetupPhase: Int, CaseIterable, Comparable {
         case install = 0, gateway = 1, apiKey = 2, verify = 3
+
+        static func < (lhs: SetupPhase, rhs: SetupPhase) -> Bool {
+            lhs.rawValue < rhs.rawValue
+        }
     }
 
     enum PhaseStatus: Equatable {
@@ -60,8 +25,6 @@ class OpenClawSetupService: ObservableObject {
 
     // MARK: - Published 属性
 
-    @Published var installStatus: InstallStatus = .checking
-    @Published var gatewayStatus: GatewayStatus = .unknown
     @Published var version: String?
     @Published var phaseStatuses: [SetupPhase: PhaseStatus] = [
         .install: .pending,
@@ -91,38 +54,99 @@ class OpenClawSetupService: ObservableObject {
     static let installCommand = "curl -fsSL https://openclaw.ai/install.sh | bash"
 
     private var installedPath: String?
+    private var setupTask: Task<Void, Never>?
 
-    // MARK: - 检测安装
+    // MARK: - Full Setup Flow
 
-    /// 检查 OpenClaw 是否已安装
-    func checkInstallation() {
-        installStatus = .checking
+    /// 入口：取消上一次运行，重置状态，顺序执行 4 个 phase
+    func runFullSetup() {
+        runSetup(from: .install)
+    }
 
-        Task {
-            // 先用 which 查找
-            if let path = await runShell("which openclaw") {
-                let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty && FileManager.default.fileExists(atPath: trimmed) {
-                    installStatus = .installed(path: trimmed)
-                    installedPath = trimmed
-                    await fetchVersion(path: trimmed)
-                    return
-                }
-            }
+    /// 从指定 phase 开始执行（用于智能重试）
+    func runSetup(from startPhase: SetupPhase) {
+        // Cancel any previous setup task
+        setupTask?.cancel()
 
-            // 检查常见路径
-            for path in commonPaths {
-                if FileManager.default.isExecutableFile(atPath: path) {
-                    installStatus = .installed(path: path)
-                    installedPath = path
-                    await fetchVersion(path: path)
-                    return
-                }
-            }
-
-            installStatus = .notInstalled
-            installedPath = nil
+        // Reset phases from startPhase onwards to .pending
+        for phase in SetupPhase.allCases where phase >= startPhase {
+            phaseStatuses[phase] = .pending
         }
+
+        setupTask = Task {
+            if startPhase <= .install {
+                await runInstallPhase()
+                if Task.isCancelled { return }
+                guard case .succeeded = phaseStatuses[.install] else { return }
+            }
+
+            if startPhase <= .gateway {
+                await runGatewayPhase()
+                if Task.isCancelled { return }
+                guard case .succeeded = phaseStatuses[.gateway] else { return }
+            }
+
+            if startPhase <= .apiKey {
+                await runAPIKeyPhase()
+                if Task.isCancelled { return }
+                // apiKey phase may pause at .needsInput — verify phase runs after user submits
+                guard case .succeeded = phaseStatuses[.apiKey] else { return }
+            }
+
+            if startPhase <= .verify {
+                await runVerifyPhase()
+            }
+        }
+    }
+
+    // MARK: - Phase 1: Install
+
+    private func runInstallPhase() async {
+        phaseStatuses[.install] = .inProgress(L("检测中...", "Checking..."))
+
+        if let found = await findOpenClaw() {
+            installedPath = found
+            await fetchVersion(path: found)
+            let desc = version.map { "v\($0)" } ?? found
+            phaseStatuses[.install] = .succeeded(L("已安装 \(desc)", "Installed \(desc)"))
+            return
+        }
+
+        // Not installed — run install
+        phaseStatuses[.install] = .inProgress(L("正在安装...", "Installing..."))
+        let result = await runShell(Self.installCommand)
+
+        if Task.isCancelled { return }
+
+        // Re-check after install
+        if let found = await findOpenClaw() {
+            installedPath = found
+            await fetchVersion(path: found)
+            let desc = version.map { "v\($0)" } ?? found
+            phaseStatuses[.install] = .succeeded(L("已安装 \(desc)", "Installed \(desc)"))
+            return
+        }
+
+        let errorMsg = result?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        phaseStatuses[.install] = .failed(L("安装失败", "Installation failed") + (errorMsg.isEmpty ? "" : ": \(errorMsg)"))
+    }
+
+    /// 查找 openclaw 可执行文件，返回路径或 nil
+    private func findOpenClaw() async -> String? {
+        if let path = await runShell("which openclaw") {
+            let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty && FileManager.default.fileExists(atPath: trimmed) {
+                return trimmed
+            }
+        }
+
+        for path in commonPaths {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return path
+            }
+        }
+
+        return nil
     }
 
     /// 获取版本号
@@ -135,116 +159,6 @@ class OpenClawSetupService: ObservableObject {
         }
     }
 
-    // MARK: - Gateway 状态
-
-    /// 检查 Gateway 是否在运行（通过 HTTP 请求）
-    func checkGatewayStatus(baseURL: String = "http://localhost:18789") {
-        gatewayStatus = .unknown
-
-        Task {
-            guard let url = URL(string: "\(baseURL)/api/health") else {
-                gatewayStatus = .error("无效的 URL")
-                return
-            }
-
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 3
-
-            do {
-                let (_, response) = try await URLSession.shared.data(for: request)
-                if let httpResponse = response as? HTTPURLResponse,
-                   (200...299).contains(httpResponse.statusCode) {
-                    gatewayStatus = .running
-                } else {
-                    gatewayStatus = .stopped
-                }
-            } catch {
-                gatewayStatus = .stopped
-            }
-        }
-    }
-
-    // MARK: - Full Setup Flow
-
-    /// 入口：顺序执行 4 个 phase
-    func runFullSetup() {
-        Task {
-            await runInstallPhase()
-            guard phaseStatuses[.install] != nil, case .succeeded = phaseStatuses[.install]! else { return }
-
-            await runGatewayPhase()
-            guard phaseStatuses[.gateway] != nil, case .succeeded = phaseStatuses[.gateway]! else { return }
-
-            await runAPIKeyPhase()
-            // apiKey phase may pause at .needsInput — verify phase runs after user submits
-            if case .succeeded = phaseStatuses[.apiKey]! {
-                await runVerifyPhase()
-            }
-        }
-    }
-
-    // MARK: - Phase 1: Install
-
-    private func runInstallPhase() async {
-        phaseStatuses[.install] = .inProgress(L("检测中...", "Checking..."))
-
-        // Reuse existing checkInstallation logic inline
-        if let path = await runShell("which openclaw") {
-            let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty && FileManager.default.fileExists(atPath: trimmed) {
-                installStatus = .installed(path: trimmed)
-                installedPath = trimmed
-                await fetchVersion(path: trimmed)
-                let desc = version.map { "v\($0)" } ?? trimmed
-                phaseStatuses[.install] = .succeeded(L("已安装 \(desc)", "Installed \(desc)"))
-                return
-            }
-        }
-
-        for path in commonPaths {
-            if FileManager.default.isExecutableFile(atPath: path) {
-                installStatus = .installed(path: path)
-                installedPath = path
-                await fetchVersion(path: path)
-                let desc = version.map { "v\($0)" } ?? path
-                phaseStatuses[.install] = .succeeded(L("已安装 \(desc)", "Installed \(desc)"))
-                return
-            }
-        }
-
-        // Not installed — run install
-        phaseStatuses[.install] = .inProgress(L("正在安装...", "Installing..."))
-        let result = await runShell(Self.installCommand)
-
-        // Re-check after install
-        if let path = await runShell("which openclaw") {
-            let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty && FileManager.default.fileExists(atPath: trimmed) {
-                installStatus = .installed(path: trimmed)
-                installedPath = trimmed
-                await fetchVersion(path: trimmed)
-                let desc = version.map { "v\($0)" } ?? trimmed
-                phaseStatuses[.install] = .succeeded(L("已安装 \(desc)", "Installed \(desc)"))
-                return
-            }
-        }
-
-        for path in commonPaths {
-            if FileManager.default.isExecutableFile(atPath: path) {
-                installStatus = .installed(path: path)
-                installedPath = path
-                await fetchVersion(path: path)
-                let desc = version.map { "v\($0)" } ?? path
-                phaseStatuses[.install] = .succeeded(L("已安装 \(desc)", "Installed \(desc)"))
-                return
-            }
-        }
-
-        let errorMsg = result?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        installStatus = .notInstalled
-        phaseStatuses[.install] = .failed(L("安装失败", "Installation failed") + (errorMsg.isEmpty ? "" : ": \(errorMsg)"))
-    }
-
     // MARK: - Phase 2: Gateway
 
     private func runGatewayPhase() async {
@@ -252,7 +166,6 @@ class OpenClawSetupService: ObservableObject {
 
         // Check if already running on current port
         if await healthCheck(port: resolvedPort) {
-            gatewayStatus = .running
             phaseStatuses[.gateway] = .succeeded(L("端口 \(resolvedPort)", "Port \(resolvedPort)"))
             return
         }
@@ -262,21 +175,26 @@ class OpenClawSetupService: ObservableObject {
         for _ in 0..<10 {
             if let lsofOutput = await runShell("lsof -ti tcp:\(port)") {
                 let trimmed = lsofOutput.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    // Port occupied — check if it's openclaw
-                    if let psOutput = await runShell("ps -p \(trimmed) -o comm=") {
-                        if psOutput.contains("openclaw") {
-                            // openclaw is using this port but health failed — try again
-                            break
-                        }
-                    }
-                    // Not openclaw, try next port
-                    port += 1
-                    continue
+                // Take only the first PID (lsof may return multiple lines)
+                guard let firstPid = trimmed.components(separatedBy: .newlines).first(where: { !$0.isEmpty }) else {
+                    break // No PID — port is free
                 }
+
+                // Port occupied — check if it's openclaw
+                if let psOutput = await runShell("ps -p \(firstPid) -o comm=") {
+                    if psOutput.contains("openclaw") {
+                        // openclaw is using this port but health failed — try with this port
+                        break
+                    }
+                }
+                // Not openclaw, try next port
+                port += 1
+                continue
             }
             break // Port is free
         }
+
+        if Task.isCancelled { return }
 
         resolvedPort = port
         UserDefaults.standard.set("http://localhost:\(port)", forKey: "backendURL")
@@ -293,14 +211,13 @@ class OpenClawSetupService: ObservableObject {
         // Poll health up to 30 times (1s interval)
         for _ in 0..<30 {
             try? await Task.sleep(for: .seconds(1))
+            if Task.isCancelled { return }
             if await healthCheck(port: port) {
-                gatewayStatus = .running
                 phaseStatuses[.gateway] = .succeeded(L("端口 \(port)", "Port \(port)"))
                 return
             }
         }
 
-        gatewayStatus = .stopped
         phaseStatuses[.gateway] = .failed(L("Gateway 启动超时", "Gateway start timed out"))
     }
 
@@ -326,7 +243,7 @@ class OpenClawSetupService: ObservableObject {
             }
         }
 
-        // Check environment variables
+        // Check environment variables (best-effort; .app bundles may not inherit shell env)
         let envKeys = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]
         for key in envKeys {
             if let value = ProcessInfo.processInfo.environment[key], !value.isEmpty {
@@ -341,7 +258,10 @@ class OpenClawSetupService: ObservableObject {
 
     /// 用户提交 API Key 后调用
     func continueAfterAPIKey(provider: String, apiKey: String) {
-        Task {
+        // Cancel any previous setup task to avoid conflict
+        setupTask?.cancel()
+
+        setupTask = Task {
             phaseStatuses[.apiKey] = .inProgress(L("正在保存...", "Saving..."))
 
             guard let path = installedPath else {
@@ -352,6 +272,8 @@ class OpenClawSetupService: ObservableObject {
             // Escape single quotes in the API key
             let escapedKey = apiKey.replacingOccurrences(of: "'", with: "'\\''")
             let result = await runShell("\(path) config set models.providers.\(provider).apiKey '\(escapedKey)'")
+
+            if Task.isCancelled { return }
 
             // Verify the key was saved by re-reading config
             let configPath = NSHomeDirectory() + "/.openclaw/openclaw.json"
@@ -380,7 +302,7 @@ class OpenClawSetupService: ObservableObject {
 
     // MARK: - Phase 4: Verify
 
-    func runVerifyPhase() async {
+    private func runVerifyPhase() async {
         phaseStatuses[.verify] = .inProgress(L("验证中...", "Verifying..."))
 
         if await healthCheck(port: resolvedPort) {

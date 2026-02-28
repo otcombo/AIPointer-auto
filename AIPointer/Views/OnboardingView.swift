@@ -15,6 +15,8 @@ struct OnboardingView: View {
     @State private var selectedProvider: String = "anthropic"
     @State private var apiKeyInput: String = ""
     @State private var showPatienceMessage: Bool = false
+    @State private var setupStarted: Bool = false
+    @State private var patienceWorkItem: DispatchWorkItem?
 
     var onComplete: () -> Void
 
@@ -339,13 +341,10 @@ struct OnboardingView: View {
             }
         }
         .onAppear {
+            guard !setupStarted else { return }
+            setupStarted = true
             openClawSetup.runFullSetup()
-            // Show patience message after 3 minutes
-            DispatchQueue.main.asyncAfter(deadline: .now() + 180) {
-                if case .inProgress = openClawSetup.phaseStatuses[.install] ?? .pending {
-                    showPatienceMessage = true
-                }
-            }
+            schedulePatienceMessage()
         }
     }
 
@@ -436,7 +435,22 @@ struct OnboardingView: View {
     }
 
     private func retryPhase(_ phase: OpenClawSetupService.SetupPhase) {
-        openClawSetup.runFullSetup()
+        showPatienceMessage = false
+        openClawSetup.runSetup(from: phase)
+        if phase == .install {
+            schedulePatienceMessage()
+        }
+    }
+
+    private func schedulePatienceMessage() {
+        patienceWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [self] in
+            if case .inProgress = openClawSetup.phaseStatuses[.install] ?? .pending {
+                showPatienceMessage = true
+            }
+        }
+        patienceWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 180, execute: workItem)
     }
 
     // MARK: - API Key Input Section
