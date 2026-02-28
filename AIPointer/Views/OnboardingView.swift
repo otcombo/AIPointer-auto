@@ -12,6 +12,8 @@ struct OnboardingView: View {
     @State private var currentStep: Step = .fnKey
     @State private var pollTimer: Timer?
     @State private var gatewayPollTimer: Timer?
+    @State private var clickedPermissions: Set<String> = []
+    @State private var pollsSinceFirstClick = 0
 
     var onComplete: () -> Void
 
@@ -200,7 +202,7 @@ struct OnboardingView: View {
                                "Mouse tracking, Fn key, Cmd+C detection"),
                     state: permissions.inputMonitoring, required: true,
                     action: {
-                        permissions.requestInputMonitoring()
+                        trackPermissionClick("inputMonitoring")
                         permissions.openInputMonitoringSettings()
                     }
                 )
@@ -211,7 +213,7 @@ struct OnboardingView: View {
                                "Read selected text, detect OTP fields, read window titles"),
                     state: permissions.accessibility, required: true,
                     action: {
-                        permissions.requestAccessibility()
+                        trackPermissionClick("accessibility")
                         permissions.openAccessibilitySettings()
                     }
                 )
@@ -225,12 +227,19 @@ struct OnboardingView: View {
             }
 
             HStack(spacing: 4) {
-                Image(systemName: "info.circle").font(.system(size: 11))
-                Text(L("授权后可能需要重启应用才能生效",
-                       "You may need to restart the app after granting permissions"))
+                Image(systemName: shouldOfferRelaunch ? "exclamationmark.triangle" : "info.circle")
                     .font(.system(size: 11))
+                if shouldOfferRelaunch {
+                    Text(L("部分权限需要重启应用后才能生效",
+                           "Some permissions require restarting the app to take effect"))
+                        .font(.system(size: 11))
+                } else {
+                    Text(L("授权后可能需要重启应用才能生效",
+                           "You may need to restart the app after granting permissions"))
+                        .font(.system(size: 11))
+                }
             }
-            .foregroundColor(.black.opacity(0.35))
+            .foregroundColor(shouldOfferRelaunch ? .orange : .black.opacity(0.35))
         }
         .onAppear { startPermissionPolling() }
         .onDisappear { stopPermissionPolling() }
@@ -629,7 +638,9 @@ struct OnboardingView: View {
             }
 
             onboardingButton(nextButtonTitle) {
-                if currentStep == .configure {
+                if currentStep == .permissions && shouldOfferRelaunch {
+                    relaunchApp()
+                } else if currentStep == .configure {
                     onComplete()
                 } else {
                     withAnimation(.easeInOut(duration: 0.25)) {
@@ -664,24 +675,65 @@ struct OnboardingView: View {
         case .autoVerify:    return L("继续", "Continue")
         case .smartSuggest:  return L("继续", "Continue")
         case .permissions:
-            return permissions.allRequiredGranted
-                ? L("下一步", "Next")
-                : L("请先开启权限", "Grant permissions first")
+            if permissions.allRequiredGranted {
+                return L("下一步", "Next")
+            } else if shouldOfferRelaunch {
+                return L("退出并重新打开", "Quit & Reopen")
+            } else {
+                return L("请先开启权限", "Grant permissions first")
+            }
         case .openclawSetup: return L("下一步", "Next")
         case .configure:     return L("开始使用", "Get Started")
         }
     }
 
     private var isNextDisabled: Bool {
-        currentStep == .permissions && !permissions.allRequiredGranted
+        currentStep == .permissions && !permissions.allRequiredGranted && !shouldOfferRelaunch
+    }
+
+    // MARK: - Permission Relaunch Logic
+
+    /// Whether we should offer a "Quit & Reopen" button instead of the disabled next button.
+    private var shouldOfferRelaunch: Bool {
+        !clickedPermissions.isEmpty
+        && !permissions.allRequiredGranted
+        && pollsSinceFirstClick >= 5
+    }
+
+    private func trackPermissionClick(_ key: String) {
+        clickedPermissions.insert(key)
+        pollsSinceFirstClick = 0
+    }
+
+    private func relaunchApp() {
+        let bundlePath = Bundle.main.bundlePath
+        let task = Process()
+        task.launchPath = "/usr/bin/open"
+        task.arguments = ["-n", bundlePath]
+        try? task.run()
+        NSApp.terminate(nil)
     }
 
     // MARK: - Permission Polling
 
     private func startPermissionPolling() {
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
             Task { @MainActor in
                 await permissions.checkAll()
+
+                // Remove granted permissions from clicked set
+                if permissions.inputMonitoring == .granted { clickedPermissions.remove("inputMonitoring") }
+                if permissions.accessibility == .granted { clickedPermissions.remove("accessibility") }
+
+                // Increment poll counter when user has clicked but permissions still denied
+                if !clickedPermissions.isEmpty && !permissions.allRequiredGranted {
+                    pollsSinceFirstClick += 1
+                }
+
+                // Auto-stop polling when all permissions granted
+                if permissions.allGranted {
+                    stopPermissionPolling()
+                }
             }
         }
     }

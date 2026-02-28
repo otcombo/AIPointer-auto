@@ -63,14 +63,19 @@ class PermissionChecker: ObservableObject {
         }
     }
 
-    // MARK: - Private
+    // MARK: - Screen Recording (shared logic)
 
-    private func checkScreenRecording() async -> PermissionState {
+    /// Shared screen recording check — used by both PermissionChecker and ScreenRecordingPermission.
+    static func isScreenRecordingGranted() async -> Bool {
         do {
             _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-            return .granted
+            return true
         } catch {
-            return .denied
+            return false
         }
+    }
+
+    private func checkScreenRecording() async -> PermissionState {
+        await Self.isScreenRecordingGranted() ? .granted : .denied
     }
 }

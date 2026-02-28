@@ -1,15 +1,9 @@
 import Cocoa
-import ScreenCaptureKit
 
 enum ScreenRecordingPermission {
-    /// Check if Screen Recording permission is granted by querying ScreenCaptureKit.
+    /// Check if Screen Recording permission is granted — delegates to PermissionChecker.
     static func isGranted() async -> Bool {
-        do {
-            _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-            return true
-        } catch {
-            return false
-        }
+        await PermissionChecker.isScreenRecordingGranted()
     }
 
     /// Open System Settings → Privacy & Security → Screen Recording.
