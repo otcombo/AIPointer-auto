@@ -71,6 +71,7 @@ struct OnboardingView: View {
         .background(Color.white)
         .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
         .shadow(color: .black.opacity(0.15), radius: 32, x: 0, y: 16)
+        .padding(40) // 给阴影留 bleed 空间（窗口 600 - 内容 520 = 80 / 2）
         .onAppear {
             Task { await permissions.checkAll() }
         }

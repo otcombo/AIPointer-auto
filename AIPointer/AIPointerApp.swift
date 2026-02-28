@@ -15,7 +15,7 @@ struct AIPointerApp: App {
 }
 
 @MainActor
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem!
     private var overlayPanel: OverlayPanel!
     private var eventTapManager: EventTapManager!
@@ -97,35 +97,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         showOnboarding(needsStart: false)
     }
 
+    private var onboardingNeedsStart = true
+
     private func showOnboarding(needsStart: Bool = true) {
+        // 防止重复打开
+        if let existing = onboardingWindow, existing.isVisible { return }
+
+        onboardingNeedsStart = needsStart
         NSApp.setActivationPolicy(.regular) // 临时显示 Dock 图标以便用户交互
 
         let onboardingView = OnboardingView {
             // 完成回调
             UserDefaults.standard.set(true, forKey: "onboardingCompleted")
-            self.onboardingWindow?.close()
-            self.onboardingWindow = nil
-            NSApp.setActivationPolicy(.accessory) // 恢复为无 Dock 图标
-            if needsStart {
-                self.startPointerSystem()
-            }
+            self.dismissOnboarding()
         }
 
-        // 外层加 padding 给阴影留空间
-        let wrappedView = onboardingView
-            .padding(40)
-
-        let hostingController = NSHostingController(rootView: wrappedView)
+        let hostingController = NSHostingController(rootView: onboardingView)
         let window = NSWindow(contentViewController: hostingController)
         window.styleMask = [.titled, .closable, .fullSizeContentView]
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isOpaque = false
         window.backgroundColor = .clear
-        window.level = .floating
+        window.hasShadow = false
+        window.level = .normal
         window.setContentSize(NSSize(width: 600, height: 600))
         window.center()
         window.isReleasedWhenClosed = false
+        window.delegate = self
 
         // 隐藏标题栏按钮
         window.standardWindowButton(.closeButton)?.isHidden = true
@@ -136,6 +135,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
 
         onboardingWindow = window
+    }
+
+    /// 统一清理 onboarding 窗口，恢复 app 状态
+    private func dismissOnboarding() {
+        onboardingWindow?.close()
+        onboardingWindow = nil
+        NSApp.setActivationPolicy(.accessory)
+        if onboardingNeedsStart {
+            onboardingNeedsStart = false
+            startPointerSystem()
+        }
+    }
+
+    // MARK: - NSWindowDelegate
+
+    func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow,
+              window === onboardingWindow else { return }
+        // User closed via Cmd+W — clean up as if dismissed
+        onboardingWindow = nil
+        NSApp.setActivationPolicy(.accessory)
+        if onboardingNeedsStart {
+            onboardingNeedsStart = false
+            startPointerSystem()
+        }
     }
 
     /// Swizzle NSApplication.orderFrontCharacterPalette as extra safety layer.
