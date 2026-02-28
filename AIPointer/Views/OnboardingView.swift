@@ -17,6 +17,7 @@ struct OnboardingView: View {
     @State private var showPatienceMessage: Bool = false
     @State private var setupStarted: Bool = false
     @State private var patienceWorkItem: DispatchWorkItem?
+    @State private var isPresented = false
 
     var onComplete: () -> Void
 
@@ -49,13 +50,21 @@ struct OnboardingView: View {
                 illustrationArea
                     .padding(.bottom, 24)
             } else {
-                Spacer().frame(height: 24)
+                Spacer().frame(height: 14)
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text(stepTitle)
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundColor(.black)
+            VStack(alignment: .leading, spacing: showsIllustration ? 8 : 24) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(stepTitle)
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(.black)
+
+                    if let subtitle = stepSubtitle {
+                        Text(subtitle)
+                            .font(.system(size: 14))
+                            .foregroundColor(.black.opacity(0.6))
+                    }
+                }
 
                 stepContent
             }
@@ -71,10 +80,16 @@ struct OnboardingView: View {
         .background(Color.white)
         .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
         .shadow(color: .black.opacity(0.15), radius: 32, x: 0, y: 16)
+        .scaleEffect(isPresented ? 1.0 : 0.92)
+        .opacity(isPresented ? 1.0 : 0.0)
         .padding(.horizontal, 60)  // (640 - 520) / 2 = 60
         .padding(.top, 44)          // shadow radius 32 + margin
         .padding(.bottom, 92)       // shadow radius 32 + y-offset 16 + margin
-        .onAppear { }
+        .onAppear {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) {
+                isPresented = true
+            }
+        }
         .onDisappear {
             pollTimer?.invalidate()
         }
@@ -89,6 +104,19 @@ struct OnboardingView: View {
         case .smartSuggest:  return L("行为感知，主动推荐", "Behavior-Aware Suggestions")
         case .permissions:   return L("系统权限", "System Permissions")
         case .openclawSetup: return L("OpenClaw 后端", "OpenClaw Backend")
+        }
+    }
+
+    private var stepSubtitle: String? {
+        switch currentStep {
+        case .permissions:
+            return L("点击对应权限行打开系统设置页面，授权后自动检测。",
+                     "Tap a row to open System Settings. Permissions are detected automatically.")
+        case .openclawSetup:
+            return L("AIPointer 正在自动配置 OpenClaw 后端。",
+                     "AIPointer is automatically configuring the OpenClaw backend.")
+        default:
+            return nil
         }
     }
 
@@ -129,15 +157,12 @@ struct OnboardingView: View {
 
     private var fnKeyContent: some View {
         VStack(alignment: .leading, spacing: 10) {
-            featureRow(icon: "keyboard",
-                       title: L("短按 Fn", "Tap Fn"),
+            featureRow(title: L("短按 Fn", "Tap Fn"),
                        desc: L("展开输入框，输入问题按 Enter 发送", "Open input, type your question and press Enter"))
-            featureRow(icon: "camera.viewfinder",
-                       title: L("长按 Fn", "Hold Fn"),
+            featureRow(title: L("长按 Fn", "Hold Fn"),
                        desc: L("框选屏幕区域作为图片上下文", "Select a screen region as image context"))
-            featureRow(icon: "text.cursor",
-                       title: L("选中后按 Fn", "Select then Fn"),
-                       desc: L("自动捕获选中文字或 Finder 文件路径", "Capture selected text or Finder file paths"))
+            featureRow(title: L("选中文字或文件后按 Fn", "Select text or files, then Fn"),
+                       desc: L("自动捕获选中内容作为上下文", "Captured as context for your conversation"))
         }
     }
 
@@ -145,15 +170,12 @@ struct OnboardingView: View {
 
     private var autoVerifyContent: some View {
         VStack(alignment: .leading, spacing: 10) {
-            featureRow(icon: "eye",
-                       title: L("自动检测", "Auto Detect"),
-                       desc: L("识别页面中的 OTP 输入框", "Detect OTP input fields on web pages"))
-            featureRow(icon: "envelope.open",
-                       title: L("邮件获取", "Email Fetch"),
-                       desc: L("通过 himalaya CLI 读取验证码", "Read codes via himalaya CLI"))
-            featureRow(icon: "text.insert",
-                       title: L("自动填入", "Auto Fill"),
-                       desc: L("验证码就绪后自动填入，无需手动操作", "Fills the code automatically, no manual work"))
+            featureRow(title: L("自动检测", "Auto Detect"),
+                       desc: L("识别 OTP 输入框", "Detect OTP fields"))
+            featureRow(title: L("邮件获取", "Email Fetch"),
+                       desc: L("读取验证码", "Read verification codes"))
+            featureRow(title: L("自动填入", "Auto Fill"),
+                       desc: L("验证码就绪后自动填入", "Fill codes automatically"))
 
             HStack(spacing: 4) {
                 Image(systemName: "info.circle").font(.system(size: 11))
@@ -170,18 +192,12 @@ struct OnboardingView: View {
 
     private var smartSuggestContent: some View {
         VStack(alignment: .leading, spacing: 10) {
-            featureRow(icon: "waveform.path.ecg",
-                       title: L("行为采集", "Activity Capture"),
-                       desc: L("记录点击、复制、应用切换等操作信号（本地处理，不上传）",
-                              "Track clicks, copies, app switches (local only, never uploaded)"))
-            featureRow(icon: "brain.head.profile",
-                       title: L("意图分析", "Intent Analysis"),
-                       desc: L("AI 分析操作模式，判断你可能需要的帮助",
-                              "AI analyzes patterns to predict what help you need"))
-            featureRow(icon: "text.bubble",
-                       title: L("主动建议", "Proactive Suggestions"),
-                       desc: L("在指针附近弹出建议气泡，按 Fn 接受并开始对话",
-                              "A suggestion bubble appears near the pointer — tap Fn to accept"))
+            featureRow(title: L("行为采集", "Activity Capture"),
+                       desc: L("记录操作信号，本地处理不上传", "Track activity signals, local only"))
+            featureRow(title: L("意图分析", "Intent Analysis"),
+                       desc: L("AI 分析操作模式，预判需求", "AI analyzes patterns to predict needs"))
+            featureRow(title: L("主动建议", "Proactive Suggestions"),
+                       desc: L("指针旁弹出建议，按 Fn 接受", "Tap Fn to accept suggestions"))
         }
     }
 
@@ -189,11 +205,6 @@ struct OnboardingView: View {
 
     private var permissionsContent: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(L("点击对应权限行打开系统设置页面，授权后自动检测。",
-                   "Tap a row to open System Settings. Permissions are detected automatically."))
-                .font(.system(size: 14))
-                .foregroundColor(.black.opacity(0.6))
-
             VStack(spacing: 6) {
                 permissionRow(
                     icon: "keyboard",
@@ -256,9 +267,9 @@ struct OnboardingView: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: icon)
-                    .font(.system(size: 14))
-                    .frame(width: 24)
-                    .foregroundColor(.black.opacity(0.5))
+                    .font(.system(size: 20))
+                    .frame(width: 32, height: 32)
+                    .foregroundColor(.black)
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 4) {
@@ -293,7 +304,8 @@ struct OnboardingView: View {
                 }
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.vertical, 13)
+            .frame(height: 58)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(state == .granted ? Color.green.opacity(0.05) : Color.black.opacity(0.03))
@@ -307,11 +319,6 @@ struct OnboardingView: View {
     private var openclawSetupContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-                Text(L("AIPointer 正在自动配置 OpenClaw 后端。",
-                       "AIPointer is automatically configuring the OpenClaw backend."))
-                    .font(.system(size: 14))
-                    .foregroundColor(.black.opacity(0.6))
-
                 VStack(spacing: 6) {
                     phaseRow(.install,
                              icon: "shippingbox.fill",
@@ -356,8 +363,10 @@ struct OnboardingView: View {
         let status = openClawSetup.phaseStatuses[phase] ?? .pending
 
         return HStack(spacing: 10) {
-            phaseStatusIcon(status, defaultIcon: icon)
-                .frame(width: 24)
+            Image(systemName: icon)
+                .font(.system(size: 20))
+                .frame(width: 32, height: 32)
+                .foregroundColor(.black)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -384,10 +393,13 @@ struct OnboardingView: View {
                         .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
+            } else {
+                phaseStatusIcon(status)
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.vertical, 13)
+        .frame(height: 58)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(phaseRowBackground(status))
@@ -395,7 +407,7 @@ struct OnboardingView: View {
     }
 
     @ViewBuilder
-    private func phaseStatusIcon(_ status: OpenClawSetupService.PhaseStatus, defaultIcon: String) -> some View {
+    private func phaseStatusIcon(_ status: OpenClawSetupService.PhaseStatus) -> some View {
         switch status {
         case .pending:
             Image(systemName: "circle")
@@ -553,13 +565,8 @@ struct OnboardingView: View {
 
     // MARK: - Shared Components
 
-    private func featureRow(icon: String, title: String, desc: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 14))
-                .frame(width: 24)
-                .foregroundColor(.black.opacity(0.5))
-
+    private func featureRow(title: String, desc: String) -> some View {
+        HStack(spacing: 6) {
             Text(title)
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(.black)
@@ -597,7 +604,7 @@ struct OnboardingView: View {
                 }) {
                     Text(L("上一步", "Back"))
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.black.opacity(0.5))
+                        .foregroundColor(.black.opacity(0.25))
                 }
                 .buttonStyle(.plain)
                 .padding(.trailing, 8)
@@ -607,7 +614,12 @@ struct OnboardingView: View {
                 if currentStep == .permissions && shouldOfferRelaunch {
                     relaunchApp()
                 } else if currentStep == .openclawSetup {
-                    onComplete()
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.9)) {
+                        isPresented = false
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        onComplete()
+                    }
                 } else {
                     withAnimation(.easeInOut(duration: 0.25)) {
                         if let next = Step(rawValue: currentStep.rawValue + 1) {
@@ -642,7 +654,7 @@ struct OnboardingView: View {
         case .smartSuggest:  return L("继续", "Continue")
         case .permissions:
             if permissions.allRequiredGranted {
-                return L("下一步", "Next")
+                return L("继续", "Continue")
             } else if shouldOfferRelaunch {
                 return L("退出并重新打开", "Quit & Reopen")
             } else {
