@@ -422,14 +422,12 @@ struct OnboardingView: View {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 16))
                 .foregroundColor(.green)
-        case .failed:
-            Image(systemName: "exclamationmark.circle.fill")
-                .font(.system(size: 16))
-                .foregroundColor(.red)
         case .needsInput:
             Image(systemName: "key.fill")
                 .font(.system(size: 14))
                 .foregroundColor(.orange)
+        case .failed:
+            EmptyView() // Handled by Retry button in phaseRow
         }
     }
 
@@ -619,7 +617,8 @@ struct OnboardingView: View {
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.9)) {
                         isPresented = false
                     }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(500))
                         onComplete()
                     }
                 } else {
