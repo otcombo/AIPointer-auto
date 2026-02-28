@@ -115,9 +115,9 @@ class BehaviorSensingService {
                 let showOffer = defaults.object(forKey: "focusShowOffer") as? Bool ?? true
 
                 guard result.displayText(
-                    showObservation: true,
-                    showInsight: true,
-                    showOffer: true
+                    showObservation: showObservation,
+                    showInsight: showInsight,
+                    showOffer: showOffer
                 ) != nil else { return }
 
                 let analysis = BehaviorAnalysis(

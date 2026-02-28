@@ -165,6 +165,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
                     NSWorkspace.shared.open(url)
                 }
+                // Keep app running so the user can grant permission and relaunch
+                return
             } else if response == .alertSecondButtonReturn {
                 // Relaunch the app
                 let task = Process()
