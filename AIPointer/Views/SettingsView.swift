@@ -5,7 +5,7 @@ struct SettingsView: View {
     @ObservedObject var viewModel: PointerViewModel
     @AppStorage("backendURL") private var backendURL = "http://localhost:18789"
     @AppStorage("agentId") private var agentId = "main"
-    @AppStorage("responseLanguage") private var responseLanguage = "zh-CN"
+    @AppStorage("responseLanguage") private var responseLanguage = defaultResponseLanguage
     @AppStorage("behaviorSensingEnabled") private var behaviorSensingEnabled = true
     @AppStorage("behaviorSensitivity") private var behaviorSensitivity = 1.0
     @AppStorage("focusDetectionEnabled") private var focusDetectionEnabled = true
@@ -205,6 +205,10 @@ struct SettingsView: View {
                 Text("Live preview — click to switch material.")
                     .font(.caption)
                     .foregroundColor(.secondary)
+
+                Button("Show Onboarding") {
+                    NotificationCenter.default.post(name: .showOnboarding, object: nil)
+                }
             }
         }
         .formStyle(.grouped)
@@ -256,6 +260,10 @@ struct SettingsView: View {
             }
         }
     }
+}
+
+extension Notification.Name {
+    static let showOnboarding = Notification.Name("showOnboarding")
 }
 
 #Preview {

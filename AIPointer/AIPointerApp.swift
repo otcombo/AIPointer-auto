@@ -41,6 +41,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         swizzleCharacterPalette()
         setupMenuBar()
 
+        // 监听 Settings 里的 "Show Onboarding" 按钮
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleShowOnboarding),
+            name: .showOnboarding, object: nil
+        )
+
         // 首次启动显示 onboarding，否则直接启动
         if !UserDefaults.standard.bool(forKey: "onboardingCompleted") {
             showOnboarding()
@@ -86,7 +92,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Onboarding
 
-    private func showOnboarding() {
+    @objc private func handleShowOnboarding() {
+        // 从 debug 按钮触发，系统已经在运行，不需要再初始化
+        showOnboarding(needsStart: false)
+    }
+
+    private func showOnboarding(needsStart: Bool = true) {
         NSApp.setActivationPolicy(.regular) // 临时显示 Dock 图标以便用户交互
 
         let onboardingView = OnboardingView {
@@ -95,16 +106,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.onboardingWindow?.close()
             self.onboardingWindow = nil
             NSApp.setActivationPolicy(.accessory) // 恢复为无 Dock 图标
-            self.checkPermissionsAndStart()
+            if needsStart {
+                self.checkPermissionsAndStart()
+            }
         }
 
-        let hostingController = NSHostingController(rootView: onboardingView)
+        // 外层加 padding 给阴影留空间
+        let wrappedView = onboardingView
+            .padding(40)
+
+        let hostingController = NSHostingController(rootView: wrappedView)
         let window = NSWindow(contentViewController: hostingController)
-        window.title = "AIPointer 设置向导"
-        window.styleMask = [.titled, .closable]
-        window.setContentSize(NSSize(width: 520, height: 480))
+        window.styleMask = [.titled, .closable, .fullSizeContentView]
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.level = .floating
+        window.setContentSize(NSSize(width: 600, height: 600))
         window.center()
         window.isReleasedWhenClosed = false
+
+        // 隐藏标题栏按钮
+        window.standardWindowButton(.closeButton)?.isHidden = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
+
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
@@ -130,6 +157,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             alert.informativeText = "AI Pointer needs Input Monitoring permission to track mouse movement and keyboard events.\n\nPlease grant access in System Settings → Privacy & Security → Input Monitoring, then relaunch the app."
             alert.alertStyle = .warning
             alert.addButton(withTitle: "Open System Settings")
+            alert.addButton(withTitle: "Relaunch")
             alert.addButton(withTitle: "Quit")
 
             let response = alert.runModal()
@@ -137,6 +165,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
                     NSWorkspace.shared.open(url)
                 }
+                // Keep app running so the user can grant permission and relaunch
+                return
+            } else if response == .alertSecondButtonReturn {
+                // Relaunch the app
+                let task = Process()
+                task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+                task.arguments = ["-n", Bundle.main.bundlePath]
+                try? task.run()
             }
             NSApp.terminate(nil)
         }
@@ -614,6 +650,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         cursorHider.restore()
         NSApp.terminate(nil)
     }
+}
+
+// MARK: - Borderless window that accepts key + mouse events
+
+class BorderlessKeyWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
 }
 
 // MARK: - Swizzle target

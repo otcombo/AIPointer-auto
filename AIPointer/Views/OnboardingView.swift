@@ -1,59 +1,72 @@
 import SwiftUI
+import AVKit
 
-/// 首次启动引导流程
+/// 首次启动引导流程 — Figma onboarding dialog 样式
 struct OnboardingView: View {
     @StateObject private var permissions = PermissionChecker()
+    @StateObject private var openClawSetup = OpenClawSetupService()
     @AppStorage("backendURL") private var backendURL = "http://localhost:18789"
     @AppStorage("agentId") private var agentId = "main"
-    @AppStorage("responseLanguage") private var responseLanguage = "zh-CN"
+    @AppStorage("responseLanguage") private var responseLanguage = defaultResponseLanguage
 
-    @StateObject private var openClawSetup = OpenClawSetupService()
-    @State private var currentStep: Step = .welcome
+    @State private var currentStep: Step = .fnKey
     @State private var pollTimer: Timer?
     @State private var gatewayPollTimer: Timer?
 
     var onComplete: () -> Void
 
     enum Step: Int, CaseIterable {
-        case welcome = 0
-        case permissions = 1
-        case openclawSetup = 2
-        case configure = 3
-        case ready = 4
+        case fnKey = 0
+        case autoVerify = 1
+        case smartSuggest = 2
+        case permissions = 3
+        case openclawSetup = 4
+        case configure = 5
+    }
+
+    private var showsIllustration: Bool {
+        currentStep == .fnKey || currentStep == .autoVerify || currentStep == .smartSuggest
+    }
+
+    private var videoURL: URL? {
+        let name: String
+        switch currentStep {
+        case .fnKey:        name = "AIPointer-Feature-1"
+        case .autoVerify:   name = "AIPointer-Feature-2"
+        case .smartSuggest: name = "AIPointer-Feature-3"
+        default:            return nil
+        }
+        return Bundle.module.url(forResource: name, withExtension: "mp4")
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // 进度指示器
-            progressBar
-                .padding(.top, 20)
-                .padding(.horizontal, 40)
-
-            // 内容区域
-            Group {
-                switch currentStep {
-                case .welcome:
-                    welcomeStep
-                case .permissions:
-                    permissionsStep
-                case .openclawSetup:
-                    openclawSetupStep
-                case .configure:
-                    configureStep
-                case .ready:
-                    readyStep
-                }
+            if showsIllustration {
+                illustrationArea
+                    .padding(.bottom, 24)
+            } else {
+                Spacer().frame(height: 24)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.horizontal, 40)
-            .padding(.vertical, 20)
 
-            // 底部按钮
-            bottomBar
-                .padding(.horizontal, 40)
-                .padding(.bottom, 24)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(stepTitle)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(.black)
+
+                stepContent
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(.horizontal, 12)
+
+            Spacer(minLength: 12)
+
+            footer
         }
-        .frame(width: 520, height: 480)
+        .padding(12)
+        .frame(width: 520, height: 520)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+        .shadow(color: .black.opacity(0.15), radius: 32, x: 0, y: 16)
         .onAppear {
             Task { await permissions.checkAll() }
         }
@@ -63,374 +76,390 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: - Progress Bar
+    // MARK: - Step Title
 
-    private var progressBar: some View {
-        HStack(spacing: 8) {
-            ForEach(Step.allCases, id: \.rawValue) { step in
-                Capsule()
-                    .fill(step.rawValue <= currentStep.rawValue
-                          ? Color.accentColor
-                          : Color.secondary.opacity(0.3))
-                    .frame(height: 4)
+    private var stepTitle: String {
+        switch currentStep {
+        case .fnKey:         return L("Fn 键，你的 AI 入口", "Fn Key, Your AI Gateway")
+        case .autoVerify:    return L("验证码自动填充", "Auto-fill Verification Codes")
+        case .smartSuggest:  return L("行为感知，主动推荐", "Behavior-Aware Suggestions")
+        case .permissions:   return L("系统权限", "System Permissions")
+        case .openclawSetup: return L("OpenClaw 后端", "OpenClaw Backend")
+        case .configure:     return L("连接设置", "Connection Settings")
+        }
+    }
+
+    // MARK: - Illustration Area
+
+    private var illustrationArea: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color(white: 0.97))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(Color.black.opacity(0.04), lineWidth: 1)
+                )
+
+            if let url = videoURL {
+                LoopingVideoPlayer(url: url)
+                    .aspectRatio(16/9, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             }
         }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
-    // MARK: - Step 1: Welcome
+    // MARK: - Step Content
 
-    private var welcomeStep: some View {
-        VStack(spacing: 16) {
-            Spacer()
-
-            Image(systemName: "pointer.arrow.ipad.rays")
-                .font(.system(size: 64))
-                .foregroundColor(.accentColor)
-
-            Text("欢迎使用 AIPointer")
-                .font(.largeTitle)
-                .fontWeight(.bold)
-
-            Text("AI 驱动的桌面助手，以自定义指针形式常驻屏幕。\n按 Fn 键即可与 AI 对话，支持截图分析和行为感知建议。")
-                .font(.body)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .lineSpacing(4)
-
-            Spacer()
+    @ViewBuilder
+    private var stepContent: some View {
+        switch currentStep {
+        case .fnKey:         fnKeyContent
+        case .autoVerify:    autoVerifyContent
+        case .smartSuggest:  smartSuggestContent
+        case .permissions:   permissionsContent
+        case .openclawSetup: openclawSetupContent
+        case .configure:     configureContent
         }
     }
 
-    // MARK: - Step 2: Permissions
+    // MARK: - Step 1: Fn Key
 
-    private var permissionsStep: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("系统权限")
-                .font(.title2)
-                .fontWeight(.bold)
+    private var fnKeyContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            featureRow(icon: "keyboard",
+                       title: L("短按 Fn", "Tap Fn"),
+                       desc: L("展开输入框，输入问题按 Enter 发送", "Open input, type your question and press Enter"))
+            featureRow(icon: "camera.viewfinder",
+                       title: L("长按 Fn", "Hold Fn"),
+                       desc: L("框选屏幕区域作为图片上下文", "Select a screen region as image context"))
+            featureRow(icon: "text.cursor",
+                       title: L("选中后按 Fn", "Select then Fn"),
+                       desc: L("自动捕获选中文字或 Finder 文件路径", "Capture selected text or Finder file paths"))
+        }
+    }
 
-            Text("AIPointer 需要以下权限才能正常工作。请逐一开启。")
-                .font(.body)
-                .foregroundColor(.secondary)
+    // MARK: - Step 2: Auto Verify
 
-            VStack(spacing: 12) {
+    private var autoVerifyContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            featureRow(icon: "eye",
+                       title: L("自动检测", "Auto Detect"),
+                       desc: L("识别页面中的 OTP 输入框", "Detect OTP input fields on web pages"))
+            featureRow(icon: "envelope.open",
+                       title: L("邮件获取", "Email Fetch"),
+                       desc: L("通过 himalaya CLI 读取验证码", "Read codes via himalaya CLI"))
+            featureRow(icon: "text.insert",
+                       title: L("自动填入", "Auto Fill"),
+                       desc: L("验证码就绪后自动填入，无需手动操作", "Fills the code automatically, no manual work"))
+
+            HStack(spacing: 4) {
+                Image(systemName: "info.circle").font(.system(size: 11))
+                Text(L("需要安装 himalaya CLI 并配置邮箱 IMAP",
+                       "Requires himalaya CLI with IMAP configured"))
+                    .font(.system(size: 11))
+            }
+            .foregroundColor(.black.opacity(0.35))
+            .padding(.top, 2)
+        }
+    }
+
+    // MARK: - Step 3: Smart Suggest
+
+    private var smartSuggestContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            featureRow(icon: "waveform.path.ecg",
+                       title: L("行为采集", "Activity Capture"),
+                       desc: L("记录点击、复制、应用切换等操作信号（本地处理，不上传）",
+                              "Track clicks, copies, app switches (local only, never uploaded)"))
+            featureRow(icon: "brain.head.profile",
+                       title: L("意图分析", "Intent Analysis"),
+                       desc: L("AI 分析操作模式，判断你可能需要的帮助",
+                              "AI analyzes patterns to predict what help you need"))
+            featureRow(icon: "text.bubble",
+                       title: L("主动建议", "Proactive Suggestions"),
+                       desc: L("在指针附近弹出建议气泡，按 Fn 接受并开始对话",
+                              "A suggestion bubble appears near the pointer — tap Fn to accept"))
+        }
+    }
+
+    // MARK: - Step 4: Permissions
+
+    private var permissionsContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(L("点击对应权限行打开系统设置页面，授权后自动检测。",
+                   "Tap a row to open System Settings. Permissions are detected automatically."))
+                .font(.system(size: 14))
+                .foregroundColor(.black.opacity(0.6))
+
+            VStack(spacing: 6) {
                 permissionRow(
                     icon: "keyboard",
-                    title: "输入监控",
-                    subtitle: "追踪鼠标移动、监听 Fn 键（必需）",
-                    state: permissions.inputMonitoring,
-                    required: true,
+                    title: L("输入监控", "Input Monitoring"),
+                    subtitle: L("鼠标追踪、Fn 键监听、Cmd+C 检测",
+                               "Mouse tracking, Fn key, Cmd+C detection"),
+                    state: permissions.inputMonitoring, required: true,
                     action: {
                         permissions.requestInputMonitoring()
                         permissions.openInputMonitoringSettings()
                     }
                 )
-
                 permissionRow(
                     icon: "hand.raised",
-                    title: "辅助功能",
-                    subtitle: "读取选中文字、检测 OTP 输入框（必需）",
-                    state: permissions.accessibility,
-                    required: true,
+                    title: L("辅助功能", "Accessibility"),
+                    subtitle: L("读取选中文字、检测 OTP 输入框、读取窗口标题",
+                               "Read selected text, detect OTP fields, read window titles"),
+                    state: permissions.accessibility, required: true,
                     action: {
                         permissions.requestAccessibility()
+                        permissions.openAccessibilitySettings()
                     }
                 )
-
                 permissionRow(
                     icon: "rectangle.dashed.badge.record",
-                    title: "屏幕录制",
-                    subtitle: "截图功能，Fn 长按框选区域（可选）",
-                    state: permissions.screenRecording,
-                    required: false,
-                    action: {
-                        permissions.openScreenRecordingSettings()
-                    }
+                    title: L("屏幕录制", "Screen Recording"),
+                    subtitle: L("Fn 长按截图功能", "Screenshot via Fn long press"),
+                    state: permissions.screenRecording, required: false,
+                    action: { permissions.openScreenRecordingSettings() }
                 )
             }
 
-            HStack {
-                Image(systemName: "info.circle")
-                    .foregroundColor(.secondary)
-                Text("授权后可能需要重启应用才能生效")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+            HStack(spacing: 4) {
+                Image(systemName: "info.circle").font(.system(size: 11))
+                Text(L("授权后可能需要重启应用才能生效",
+                       "You may need to restart the app after granting permissions"))
+                    .font(.system(size: 11))
             }
-            .padding(.top, 4)
-
-            Spacer()
+            .foregroundColor(.black.opacity(0.35))
         }
         .onAppear { startPermissionPolling() }
         .onDisappear { stopPermissionPolling() }
     }
 
     private func permissionRow(
-        icon: String,
-        title: String,
-        subtitle: String,
+        icon: String, title: String, subtitle: String,
         state: PermissionChecker.PermissionState,
-        required: Bool,
-        action: @escaping () -> Void
+        required: Bool, action: @escaping () -> Void
     ) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.title2)
-                .frame(width: 32)
-                .foregroundColor(.accentColor)
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 14))
+                    .frame(width: 24)
+                    .foregroundColor(.black.opacity(0.5))
 
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
-                    Text(title)
-                        .font(.headline)
-                    if required {
-                        Text("必需")
-                            .font(.caption2)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.red.opacity(0.15))
-                            .foregroundColor(.red)
-                            .cornerRadius(4)
-                    } else {
-                        Text("可选")
-                            .font(.caption2)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.secondary.opacity(0.15))
-                            .foregroundColor(.secondary)
-                            .cornerRadius(4)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Text(title)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.black)
+                        if required {
+                            Text(L("必需", "Required"))
+                                .font(.system(size: 10, weight: .medium))
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(Color.red.opacity(0.12))
+                                .foregroundColor(.red)
+                                .cornerRadius(4)
+                        }
                     }
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundColor(.black.opacity(0.4))
                 }
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
 
-            Spacer()
+                Spacer()
 
-            if state == .granted {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.title2)
-                    .foregroundColor(.green)
-            } else {
-                Button("开启") {
-                    action()
+                if state == .granted {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(.green)
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.black.opacity(0.3))
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(state == .granted ? Color.green.opacity(0.05) : Color.black.opacity(0.03))
+            )
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(state == .granted
-                      ? Color.green.opacity(0.06)
-                      : Color.secondary.opacity(0.06))
-        )
+        .buttonStyle(.plain)
     }
 
-    // MARK: - Step 3: OpenClaw Setup
+    // MARK: - Step 5: OpenClaw Setup
 
-    private var openclawSetupStep: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("OpenClaw 后端")
-                .font(.title2)
-                .fontWeight(.bold)
+    private var openclawSetupContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(L("AIPointer 需要 OpenClaw 作为 AI 后端。",
+                       "AIPointer requires OpenClaw as its AI backend."))
+                    .font(.system(size: 14))
+                    .foregroundColor(.black.opacity(0.6))
 
-            Text("AIPointer 需要 OpenClaw 作为 AI 后端。检测本机安装状态...")
-                .font(.body)
-                .foregroundColor(.secondary)
-
-            // 安装状态卡片
-            VStack(spacing: 12) {
-                // 安装检测
-                HStack(spacing: 12) {
-                    Image(systemName: installStatusIcon)
-                        .font(.title2)
-                        .frame(width: 32)
-                        .foregroundColor(installStatusColor)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("OpenClaw 安装")
-                            .font(.headline)
-                        Text(installStatusText)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
-                    Spacer()
-
-                    if !openClawSetup.installStatus.isInstalled {
-                        Button("安装") {
-                            openClawSetup.openTerminalWithInstall()
+                // Install status
+                statusRow(
+                    icon: installStatusIcon,
+                    iconColor: installStatusColor,
+                    title: L("OpenClaw 安装", "OpenClaw Installation"),
+                    subtitle: installStatusText,
+                    trailing: {
+                        if !openClawSetup.installStatus.isInstalled {
+                            smallActionButton(L("安装", "Install")) {
+                                openClawSetup.openTerminalWithInstall()
+                            }
                         }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                    } else {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.title2)
-                            .foregroundColor(.green)
                     }
-                }
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(openClawSetup.installStatus.isInstalled
-                              ? Color.green.opacity(0.06)
-                              : Color.orange.opacity(0.06))
                 )
 
-                // Gateway 状态（仅安装后显示）
+                // Gateway status (only after installed)
                 if openClawSetup.installStatus.isInstalled {
-                    HStack(spacing: 12) {
-                        Image(systemName: gatewayStatusIcon)
-                            .font(.title2)
-                            .frame(width: 32)
-                            .foregroundColor(gatewayStatusColor)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Gateway 服务")
-                                .font(.headline)
-                            Text(gatewayStatusText)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-
-                        Spacer()
-
-                        if openClawSetup.gatewayStatus == .stopped {
-                            Button("启动") {
-                                openClawSetup.startGatewayInTerminal()
+                    statusRow(
+                        icon: gatewayStatusIcon,
+                        iconColor: gatewayStatusColor,
+                        title: L("Gateway 服务", "Gateway Service"),
+                        subtitle: gatewayStatusText,
+                        trailing: {
+                            if openClawSetup.gatewayStatus == .stopped {
+                                smallActionButton(L("启动", "Start")) {
+                                    openClawSetup.startGatewayInTerminal()
+                                }
                             }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
-                        } else if openClawSetup.gatewayStatus == .running {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.title2)
-                                .foregroundColor(.green)
                         }
-                    }
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(openClawSetup.gatewayStatus == .running
-                                  ? Color.green.opacity(0.06)
-                                  : Color.secondary.opacity(0.06))
                     )
                 }
-            }
 
-            // 安装说明
-            if !openClawSetup.installStatus.isInstalled {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("安装命令：")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(OpenClawSetupService.installCommand)
-                        .font(.system(.caption, design: .monospaced))
-                        .padding(8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.black.opacity(0.05))
-                        .cornerRadius(6)
-
-                    Text("安装完成后点击"重新检测"")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    Button("重新检测") {
-                        openClawSetup.checkInstallation()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-            }
-
-            // API Key 配置引导（Gateway 运行后显示）
-            if openClawSetup.gatewayStatus == .running {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "key.fill")
-                            .font(.title2)
-                            .frame(width: 32)
-                            .foregroundColor(.accentColor)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("配置 API Key")
-                                .font(.headline)
-                            Text("OpenClaw 需要 LLM 提供商的 API Key 才能工作")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                // API Key config (only after gateway running)
+                if openClawSetup.gatewayStatus == .running {
+                    statusRow(
+                        icon: "key.fill",
+                        iconColor: .orange,
+                        title: L("配置 API Key", "Configure API Key"),
+                        subtitle: L("OpenClaw 需要 LLM 提供商的 API Key",
+                                   "OpenClaw needs an LLM provider API Key"),
+                        trailing: {
+                            smallActionButton(L("打开终端", "Open Terminal")) {
+                                openClawSetup.openTerminalForConfig()
+                            }
                         }
-
-                        Spacer()
-
-                        Button("打开终端配置") {
-                            openClawSetup.openTerminalForConfig()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                    }
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.accentColor.opacity(0.06))
                     )
-
-                    Text("在终端中运行 `openclaw config edit` 添加你的 API Key（如 OpenAI、Anthropic 等）")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .padding(.leading, 4)
                 }
-            }
 
-            HStack {
-                Image(systemName: "info.circle")
-                    .foregroundColor(.secondary)
-                Text("也可连接远程 OpenClaw 服务器，跳过本步骤在下一步配置地址")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            .padding(.top, 4)
+                // Install command hint
+                if !openClawSetup.installStatus.isInstalled {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(OpenClawSetupService.installCommand)
+                            .font(.system(size: 11, design: .monospaced))
+                            .padding(8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.black.opacity(0.04))
+                            .cornerRadius(8)
 
-            Spacer()
+                        Button(action: { openClawSetup.checkInstallation() }) {
+                            Text(L("重新检测", "Re-check"))
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.black.opacity(0.6))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                HStack(spacing: 4) {
+                    Image(systemName: "info.circle").font(.system(size: 11))
+                    Text(L("也可连接远程 OpenClaw 服务器，跳过本步骤在下一步配置",
+                           "You can also connect to a remote OpenClaw server in the next step"))
+                        .font(.system(size: 11))
+                }
+                .foregroundColor(.black.opacity(0.35))
+            }
         }
         .onAppear {
             openClawSetup.checkInstallation()
             startGatewayPolling()
         }
-        .onDisappear {
-            stopGatewayPolling()
-        }
+        .onDisappear { stopGatewayPolling() }
     }
 
-    // OpenClaw Setup 辅助计算属性
+    private func statusRow<Trailing: View>(
+        icon: String, iconColor: Color,
+        title: String, subtitle: String,
+        @ViewBuilder trailing: () -> Trailing
+    ) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .frame(width: 24)
+                .foregroundColor(iconColor)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.black)
+                Text(subtitle)
+                    .font(.system(size: 11))
+                    .foregroundColor(.black.opacity(0.4))
+            }
+
+            Spacer()
+
+            trailing()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.black.opacity(0.03))
+        )
+    }
+
+    private func smallActionButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .background(Color.black)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // OpenClaw status helpers
     private var installStatusIcon: String {
         switch openClawSetup.installStatus {
-        case .checking: return "arrow.clockwise"
-        case .installed: return "shippingbox.fill"
+        case .checking:     return "arrow.clockwise"
+        case .installed:    return "shippingbox.fill"
         case .notInstalled: return "shippingbox"
-        case .error: return "exclamationmark.triangle"
+        case .error:        return "exclamationmark.triangle"
         }
     }
 
     private var installStatusColor: Color {
         switch openClawSetup.installStatus {
-        case .checking: return .secondary
-        case .installed: return .green
+        case .checking:     return .secondary
+        case .installed:    return .green
         case .notInstalled: return .orange
-        case .error: return .red
+        case .error:        return .red
         }
     }
 
     private var installStatusText: String {
         switch openClawSetup.installStatus {
-        case .checking: return "检测中..."
+        case .checking:
+            return L("检测中...", "Checking...")
         case .installed(let path):
             if let ver = openClawSetup.version {
-                return "已安装 \(ver) — \(path)"
+                return L("已安装 \(ver) — \(path)", "Installed \(ver) — \(path)")
             }
-            return "已安装 — \(path)"
-        case .notInstalled: return "未检测到 OpenClaw"
-        case .error(let msg): return "检测出错：\(msg)"
+            return L("已安装 — \(path)", "Installed — \(path)")
+        case .notInstalled:
+            return L("未检测到 OpenClaw", "OpenClaw not found")
+        case .error(let msg):
+            return L("检测出错：\(msg)", "Error: \(msg)")
         }
     }
 
@@ -439,7 +468,7 @@ struct OnboardingView: View {
         case .unknown: return "arrow.clockwise"
         case .running: return "bolt.fill"
         case .stopped: return "bolt.slash"
-        case .error: return "exclamationmark.triangle"
+        case .error:   return "exclamationmark.triangle"
         }
     }
 
@@ -448,142 +477,203 @@ struct OnboardingView: View {
         case .unknown: return .secondary
         case .running: return .green
         case .stopped: return .orange
-        case .error: return .red
+        case .error:   return .red
         }
     }
 
     private var gatewayStatusText: String {
         switch openClawSetup.gatewayStatus {
-        case .unknown: return "检测中..."
-        case .running: return "Gateway 正在运行"
-        case .stopped: return "Gateway 未运行"
-        case .error(let msg): return "错误：\(msg)"
+        case .unknown:      return L("检测中...", "Checking...")
+        case .running:      return L("Gateway 正在运行", "Gateway is running")
+        case .stopped:      return L("Gateway 未运行", "Gateway is not running")
+        case .error(let m): return L("错误：\(m)", "Error: \(m)")
         }
     }
 
-    // MARK: - Step 4: Configure
+    // MARK: - Step 6: Configure
 
-    private var configureStep: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("连接设置")
-                .font(.title2)
-                .fontWeight(.bold)
+    private var configureContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(L("配置 OpenClaw 后端连接。如果不确定，保持默认即可。",
+                       "Configure the OpenClaw backend connection. Keep defaults if unsure."))
+                    .font(.system(size: 14))
+                    .foregroundColor(.black.opacity(0.6))
 
-            Text("配置 OpenClaw 后端连接。如果不确定，保持默认即可。")
-                .font(.body)
-                .foregroundColor(.secondary)
+                VStack(alignment: .leading, spacing: 10) {
+                    sectionLabel(L("服务器连接", "SERVER CONNECTION"))
+                    fieldGroup(label: "Server URL", placeholder: "http://localhost:18789", text: $backendURL)
+                    fieldGroup(label: "Agent ID", placeholder: "main", text: $agentId)
 
-            VStack(alignment: .leading, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Server URL")
-                        .font(.headline)
-                    TextField("http://localhost:18789", text: $backendURL)
-                        .textFieldStyle(.roundedBorder)
-                    Text("OpenClaw 服务器地址")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Agent ID")
-                        .font(.headline)
-                    TextField("main", text: $agentId)
-                        .textFieldStyle(.roundedBorder)
-                    Text("要对话的 Agent 名称")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("回复语言")
-                        .font(.headline)
-                    Picker("", selection: $responseLanguage) {
-                        Text("中文").tag("zh-CN")
-                        Text("English").tag("en")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(L("回复语言", "Response Language"))
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.black)
+                        Picker("", selection: $responseLanguage) {
+                            Text("中文").tag("zh-CN")
+                            Text("English").tag("en")
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
                     }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
+                }
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    sectionLabel(L("配置文件", "CONFIG FILES"))
+                    configCheckRow(
+                        icon: "doc.text",
+                        title: "~/.openclaw/openclaw.json",
+                        desc: L("API 密钥、模型配置、网关认证 Token",
+                               "API keys, model config, gateway auth token")
+                    )
+                    configCheckRow(
+                        icon: "envelope",
+                        title: "himalaya CLI + IMAP",
+                        desc: L("验证码自动填充功能所需，brew install himalaya",
+                               "Required for auto-fill verification codes — brew install himalaya")
+                    )
+
+                    HStack(spacing: 4) {
+                        Image(systemName: "info.circle").font(.system(size: 11))
+                        Text(L("如果只用对话功能，配置 openclaw.json 即可",
+                               "For chat only, just configure openclaw.json"))
+                            .font(.system(size: 11))
+                    }
+                    .foregroundColor(.black.opacity(0.35))
                 }
             }
-
-            Spacer()
         }
     }
 
-    // MARK: - Step 4: Ready
+    // MARK: - Shared Components
 
-    private var readyStep: some View {
-        VStack(spacing: 16) {
-            Spacer()
+    private func featureRow(icon: String, title: String, desc: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .frame(width: 24)
+                .foregroundColor(.black.opacity(0.5))
 
-            Image(systemName: "checkmark.circle")
-                .font(.system(size: 64))
-                .foregroundColor(.green)
+            Text(title)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.black)
 
-            Text("一切就绪！")
-                .font(.largeTitle)
-                .fontWeight(.bold)
+            Text(desc)
+                .font(.system(size: 13))
+                .foregroundColor(.black.opacity(0.5))
+                .lineLimit(2)
+        }
+    }
 
-            VStack(spacing: 8) {
-                Text("按 **Fn** 打开输入框与 AI 对话")
-                Text("长按 **Fn** 截图并分析")
-                Text("AI 会在你需要时主动提供建议")
+    private func configCheckRow(icon: String, title: String, desc: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 13))
+                .frame(width: 20, height: 18)
+                .foregroundColor(.black.opacity(0.5))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 13, weight: .medium)).foregroundColor(.black)
+                Text(desc).font(.system(size: 12)).foregroundColor(.black.opacity(0.45))
             }
-            .font(.body)
-            .foregroundColor(.secondary)
-            .multilineTextAlignment(.center)
-
-            Spacer()
         }
     }
 
-    // MARK: - Bottom Bar
+    private func sectionLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundColor(.black.opacity(0.35))
+            .textCase(.uppercase)
+    }
 
-    private var bottomBar: some View {
+    private func fieldGroup(label: String, placeholder: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(.system(size: 13, weight: .medium)).foregroundColor(.black)
+            TextField(placeholder, text: text)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 13))
+        }
+    }
+
+    // MARK: - Footer
+
+    private var footer: some View {
         HStack {
-            if currentStep != .welcome {
-                Button("上一步") {
-                    withAnimation {
+            HStack(spacing: 4) {
+                ForEach(Step.allCases, id: \.rawValue) { step in
+                    Capsule()
+                        .fill(step == currentStep ? Color.black : Color.black.opacity(0.1))
+                        .frame(width: step == currentStep ? 48 : 16, height: 4)
+                        .animation(.easeInOut(duration: 0.25), value: currentStep)
+                }
+            }
+            .padding(.leading, 12)
+
+            Spacer()
+
+            if currentStep.rawValue > 0 {
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.25)) {
                         if let prev = Step(rawValue: currentStep.rawValue - 1) {
                             currentStep = prev
                         }
                     }
+                }) {
+                    Text(L("上一步", "Back"))
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.black.opacity(0.5))
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
+                .padding(.trailing, 8)
             }
 
-            Spacer()
-
-            if currentStep == .ready {
-                Button("开始使用") {
+            onboardingButton(nextButtonTitle) {
+                if currentStep == .configure {
                     onComplete()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-            } else {
-                Button(nextButtonTitle) {
-                    withAnimation {
+                } else {
+                    withAnimation(.easeInOut(duration: 0.25)) {
                         if let next = Step(rawValue: currentStep.rawValue + 1) {
                             currentStep = next
                         }
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(currentStep == .permissions && !permissions.allRequiredGranted)
             }
+            .opacity(isNextDisabled ? 0.4 : 1.0)
+            .disabled(isNextDisabled)
         }
+        .padding(.top, 12)
+    }
+
+    private func onboardingButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.white)
+                .padding(.horizontal, 16)
+                .frame(minWidth: 100, minHeight: 36)
+                .background(Color.black)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     private var nextButtonTitle: String {
         switch currentStep {
-        case .welcome: return "开始设置"
+        case .fnKey:         return L("继续", "Continue")
+        case .autoVerify:    return L("继续", "Continue")
+        case .smartSuggest:  return L("继续", "Continue")
         case .permissions:
-            return permissions.allRequiredGranted ? "下一步" : "请先开启必需权限"
-        case .openclawSetup: return "下一步"
-        case .configure: return "完成"
-        case .ready: return "开始使用"
+            return permissions.allRequiredGranted
+                ? L("下一步", "Next")
+                : L("请先开启权限", "Grant permissions first")
+        case .openclawSetup: return L("下一步", "Next")
+        case .configure:     return L("开始使用", "Get Started")
         }
+    }
+
+    private var isNextDisabled: Bool {
+        currentStep == .permissions && !permissions.allRequiredGranted
     }
 
     // MARK: - Permission Polling
@@ -615,5 +705,42 @@ struct OnboardingView: View {
     private func stopGatewayPolling() {
         gatewayPollTimer?.invalidate()
         gatewayPollTimer = nil
+    }
+}
+
+// MARK: - Looping Video Player
+
+struct LoopingVideoPlayer: NSViewRepresentable {
+    let url: URL
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let player = AVPlayer(url: url)
+        player.isMuted = true
+        player.actionAtItemEnd = .none
+
+        NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: player.currentItem,
+            queue: .main
+        ) { _ in
+            player.seek(to: .zero)
+            player.play()
+        }
+
+        let playerView = AVPlayerView()
+        playerView.player = player
+        playerView.controlsStyle = .none
+        playerView.videoGravity = .resizeAspect
+        player.play()
+
+        return playerView
+    }
+
+    func updateNSView(_ nsView: AVPlayerView, context: Context) {
+        guard let currentURL = (nsView.player?.currentItem?.asset as? AVURLAsset)?.url,
+              currentURL != url else { return }
+        let item = AVPlayerItem(url: url)
+        nsView.player?.replaceCurrentItem(with: item)
+        nsView.player?.play()
     }
 }

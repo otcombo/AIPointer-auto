@@ -25,8 +25,27 @@
 ## 系统要求
 
 - **macOS 15 (Sequoia)** 或更高版本
-- **Swift 6.2+**
-- 无第三方依赖，仅使用系统框架
+- **Xcode 26 beta** 或更高版本（包含 Swift 6.2 工具链）
+- 无第三方 SPM 依赖，仅使用系统框架
+
+### 构建依赖
+
+| 依赖 | 最低版本 | 安装方式 |
+|------|----------|----------|
+| **Xcode** | 26 beta+ | [developer.apple.com/xcode](https://developer.apple.com/xcode/) |
+| **Swift 工具链** | 6.2+ | 随 Xcode 26 自带，或通过 [swift.org/install](https://swift.org/install) 单独安装 |
+| **macOS SDK** | 26+ | 随 Xcode 26 自带 |
+| **Command Line Tools** | 与 Xcode 版本匹配 | `xcode-select --install` |
+
+> Package.swift 中 `platforms: [.macOS(.v26)]`，需要 macOS 26 SDK 才能编译。如果使用独立 Swift 工具链，确保 `xcrun --show-sdk-path` 指向正确的 SDK。
+
+### 使用的系统框架
+
+- **SwiftUI** — UI 层
+- **AppKit (Cocoa)** — NSPanel、NSStatusItem、NSEvent、CGEvent tap
+- **ScreenCaptureKit** — 截图功能（SCScreenshotManager）
+- **ApplicationServices** — 辅助功能 API（AXUIElement）
+- **CoreGraphics** — 事件拦截、坐标系统
 
 ## 权限配置
 
@@ -84,8 +103,8 @@ AIPointer 需要连接 OpenClaw 后端服务。
 
 ```bash
 # 克隆仓库
-git clone https://github.com/otcombo/AIPointer.git
-cd AIPointer
+git clone https://github.com/otcombo/AIPointer-auto.git
+cd AIPointer-auto
 
 # 构建
 swift build
