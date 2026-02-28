@@ -24,11 +24,16 @@ class PermissionChecker: ObservableObject {
         allRequiredGranted && screenRecording == .granted
     }
 
-    /// 检查所有权限状态
+    /// 检查所有权限状态（含屏幕录制，会触发系统弹窗）
     func checkAll() async {
+        checkRequired()
+        screenRecording = await checkScreenRecording()
+    }
+
+    /// 只检查必需权限（不触发任何系统弹窗）
+    func checkRequired() {
         inputMonitoring = CGPreflightListenEventAccess() ? .granted : .denied
         accessibility = AXIsProcessTrusted() ? .granted : .denied
-        screenRecording = await checkScreenRecording()
     }
 
     /// 请求输入监控权限（触发系统弹窗）

@@ -74,9 +74,7 @@ struct OnboardingView: View {
         .padding(.horizontal, 60)  // (640 - 520) / 2 = 60
         .padding(.top, 44)          // shadow radius 32 + margin
         .padding(.bottom, 92)       // shadow radius 32 + y-offset 16 + margin
-        .onAppear {
-            Task { await permissions.checkAll() }
-        }
+        .onAppear { }
         .onDisappear {
             pollTimer?.invalidate()
         }
@@ -224,7 +222,10 @@ struct OnboardingView: View {
                     title: L("屏幕录制", "Screen Recording"),
                     subtitle: L("Fn 长按截图功能", "Screenshot via Fn long press"),
                     state: permissions.screenRecording, required: false,
-                    action: { permissions.openScreenRecordingSettings() }
+                    action: {
+                        clickedPermissions.insert("screenRecording")
+                        permissions.openScreenRecordingSettings()
+                    }
                 )
             }
 
@@ -694,7 +695,12 @@ struct OnboardingView: View {
     private func startPermissionPolling() {
         pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
             Task { @MainActor in
-                await permissions.checkAll()
+                permissions.checkRequired()
+
+                // Check screen recording only after user has clicked that row
+                if clickedPermissions.contains("screenRecording") && permissions.screenRecording != .granted {
+                    permissions.screenRecording = await PermissionChecker.isScreenRecordingGranted() ? .granted : .denied
+                }
 
                 // Remove granted permissions from clicked set
                 if permissions.inputMonitoring == .granted { clickedPermissions.remove("inputMonitoring") }
