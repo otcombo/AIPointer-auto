@@ -51,7 +51,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if !UserDefaults.standard.bool(forKey: "onboardingCompleted") {
             showOnboarding()
         } else {
-            checkPermissionsAndStart()
+            startPointerSystem()
         }
     }
 
@@ -107,7 +107,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.onboardingWindow = nil
             NSApp.setActivationPolicy(.accessory) // 恢复为无 Dock 图标
             if needsStart {
-                self.checkPermissionsAndStart()
+                self.startPointerSystem()
             }
         }
 
@@ -147,10 +147,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         method_exchangeImplementations(m1, m2)
     }
 
-    private func checkPermissionsAndStart() {
-        if EventTapManager.checkPermission() {
-            startPointerSystem()
-        } else {
+    private func startPointerSystem() {
+        // 权限检查：无论首次还是后续启动，都在此统一拦截
+        guard EventTapManager.checkPermission() else {
             EventTapManager.requestPermission()
             let alert = NSAlert()
             alert.messageText = "Input Monitoring Required"
@@ -168,17 +167,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 // Keep app running so the user can grant permission and relaunch
                 return
             } else if response == .alertSecondButtonReturn {
-                // Relaunch the app
                 let task = Process()
                 task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
                 task.arguments = ["-n", Bundle.main.bundlePath]
                 try? task.run()
             }
             NSApp.terminate(nil)
+            return
         }
-    }
 
-    private func startPointerSystem() {
         cursorHider = CursorHider()
         viewModel = PointerViewModel()
         eventTapManager = EventTapManager()
