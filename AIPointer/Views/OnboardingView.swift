@@ -303,7 +303,8 @@ struct OnboardingView: View {
                         .foregroundColor(.black.opacity(0.3))
                 }
             }
-            .padding(.horizontal, 10)
+            .padding(.leading, 10)
+            .padding(.trailing, 14)
             .padding(.vertical, 13)
             .frame(height: 58)
             .background(
@@ -397,7 +398,8 @@ struct OnboardingView: View {
                 phaseStatusIcon(status)
             }
         }
-        .padding(.horizontal, 10)
+        .padding(.leading, 10)
+        .padding(.trailing, 14)
         .padding(.vertical, 13)
         .frame(height: 58)
         .background(
