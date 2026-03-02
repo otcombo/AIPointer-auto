@@ -16,7 +16,7 @@ struct AIPointerApp: App {
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
-    private var statusItem: NSStatusItem!
+    private var statusItem: NSStatusItem?
     private var overlayPanel: OverlayPanel!
     private var eventTapManager: EventTapManager!
     private var cursorHider: CursorHider!
@@ -37,9 +37,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setbuf(stdout, nil) // Disable stdout buffering for real-time logs
+        try? "LAUNCH \(Date())\n".write(toFile: NSHomeDirectory() + "/aipointer_debug.log", atomically: true, encoding: .utf8)
         NSApp.setActivationPolicy(.accessory)
         swizzleCharacterPalette()
-        setupMenuBar()
 
         // 监听 Settings 里的 "Show Onboarding" 按钮
         NotificationCenter.default.addObserver(
@@ -51,6 +51,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if !UserDefaults.standard.bool(forKey: "onboardingCompleted") {
             showOnboarding()
         } else {
+            setupMenuBar()
             startPointerSystem()
         }
     }
@@ -64,11 +65,36 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     // MARK: - Setup
 
+    private let debugLog = NSHomeDirectory() + "/aipointer_debug.log"
+
+    private func dbg(_ msg: String) {
+        let line = "\(Date()) \(msg)\n"
+        if let data = line.data(using: .utf8) {
+            if FileManager.default.fileExists(atPath: debugLog) {
+                if let fh = FileHandle(forWritingAtPath: debugLog) {
+                    fh.seekToEndOfFile()
+                    fh.write(data)
+                    fh.closeFile()
+                }
+            } else {
+                FileManager.default.createFile(atPath: debugLog, contents: data)
+            }
+        }
+    }
+
     private func setupMenuBar() {
+        if statusItem != nil {
+            statusItem?.isVisible = true
+            return
+        }
+        dbg("[MenuBar] setupMenuBar called, policy: \(NSApp.activationPolicy().rawValue)")
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        if let button = statusItem.button {
+        dbg("[MenuBar] statusItem created: \(statusItem != nil), button: \(statusItem?.button != nil)")
+        if let button = statusItem?.button {
             let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-            button.image = NSImage(systemSymbolName: "pointer.arrow.ipad.rays", accessibilityDescription: "AI Pointer")?.withSymbolConfiguration(config)
+            let img = NSImage(systemSymbolName: "pointer.arrow.ipad.rays", accessibilityDescription: "AI Pointer")?.withSymbolConfiguration(config)
+            button.image = img
+            dbg("[MenuBar] image set: \(img != nil), button.image: \(button.image != nil)")
         }
 
         let menu = NSMenu()
@@ -87,7 +113,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         quitItem.target = self
         menu.addItem(quitItem)
 
-        statusItem.menu = menu
+        statusItem?.menu = menu
+    }
+
+    private func teardownMenuBar() {
+        guard let item = statusItem else { return }
+        NSStatusBar.system.removeStatusItem(item)
+        statusItem = nil
+        dbg("[MenuBar] statusItem removed")
     }
 
     // MARK: - Onboarding
@@ -104,6 +137,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let existing = onboardingWindow, existing.isVisible { return }
 
         onboardingNeedsStart = needsStart
+        teardownMenuBar()
         NSApp.setActivationPolicy(.regular) // 临时显示 Dock 图标以便用户交互
 
         let onboardingView = OnboardingView {
@@ -121,7 +155,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.backgroundColor = .clear
         window.hasShadow = false
         window.level = .normal
-        window.setContentSize(NSSize(width: 640, height: 656))
+        window.setContentSize(NSSize(width: 600, height: 600))
         window.center()
         window.isReleasedWhenClosed = false
         window.delegate = self
@@ -139,13 +173,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     /// 统一清理 onboarding 窗口，恢复 app 状态
     private func dismissOnboarding() {
-        onboardingWindow?.close()
-        onboardingWindow = nil
-        NSApp.setActivationPolicy(.accessory)
-        if onboardingNeedsStart {
-            onboardingNeedsStart = false
-            startPointerSystem()
+        dbg("[Onboarding] dismissOnboarding called")
+        guard let window = onboardingWindow else {
+            finishOnboardingFlow()
+            return
         }
+        onboardingWindow = nil
+        window.delegate = nil // Prevent duplicate cleanup via windowWillClose.
+        window.close()
+        finishOnboardingFlow()
     }
 
     // MARK: - NSWindowDelegate
@@ -153,9 +189,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow,
               window === onboardingWindow else { return }
-        // User closed via Cmd+W — clean up as if dismissed
+        dbg("[Onboarding] windowWillClose triggered")
         onboardingWindow = nil
+        // User closed via Cmd+W — clean up as if dismissed.
+        finishOnboardingFlow()
+    }
+
+    private func finishOnboardingFlow() {
         NSApp.setActivationPolicy(.accessory)
+        setupMenuBar()
+        dbg("[Onboarding] policy set to accessory, statusItem: \(statusItem != nil), button: \(statusItem?.button != nil), visible: \(statusItem?.isVisible ?? false)")
         if onboardingNeedsStart {
             onboardingNeedsStart = false
             startPointerSystem()
@@ -661,7 +704,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             overlayPanel.orderOut(nil)
         }
 
-        if let menu = statusItem.menu,
+        if let menu = statusItem?.menu,
            let toggleItem = menu.item(at: 0) {
             toggleItem.state = isEnabled ? .on : .off
         }
