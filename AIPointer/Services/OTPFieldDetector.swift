@@ -41,6 +41,11 @@ struct OTPFieldDetector {
             return .tier1
         }
 
+        // Split OTP with unknown maxLength but strong structural signal
+        if attrs.maxLength == nil, isSplitOTPGroup(element: element) {
+            return .tier2
+        }
+
         // --- Tier 2: High confidence (keyword in id/name/class) ---
 
         let allIdentifiers = identifiers + [attrs.domClass].compactMap { $0?.lowercased() }
@@ -91,6 +96,11 @@ struct OTPFieldDetector {
             signals += 1
         }
 
+        // Nearby page text contains OTP-related phrases
+        if scanNearbyText(element: element) {
+            signals += 1
+        }
+
         return signals >= 2 ? .tier3 : .none
     }
 
@@ -136,28 +146,72 @@ struct OTPFieldDetector {
     // MARK: - Tier 3 helpers
 
     /// Check if the element is part of a split OTP group (multiple single-digit inputs).
+    /// Skips single-child wrapper nodes quickly, only inspects nodes with multiple children.
     private static func isSplitOTPGroup(element: AXUIElement) -> Bool {
-        // Get the parent and check if it has multiple single-char text field children
-        var parentRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, kAXParentAttribute as CFString, &parentRef) == .success,
-              let parent = parentRef else { return false }
-        let parentElement = parent as! AXUIElement
+        var current = element
 
-        var childrenRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(parentElement, kAXChildrenAttribute as CFString, &childrenRef) == .success,
-              let children = childrenRef as? [AXUIElement] else { return false }
+        for _ in 0..<8 {
+            var parentRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(current, kAXParentAttribute as CFString, &parentRef) == .success,
+                  let parent = parentRef else { break }
+            let parentElement = parent as! AXUIElement
 
-        // Count text fields with maxLength == 1
-        var singleCharCount = 0
-        for child in children {
-            let childAttrs = AXAttributes(element: child)
-            if childAttrs.isTextField && childAttrs.maxLength == 1 {
-                singleCharCount += 1
+            // Quick check: how many children does this parent have?
+            var childrenRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(parentElement, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+                  let children = childrenRef as? [AXUIElement] else { break }
+
+            // Skip single-child wrappers — just a getParent + getChildren count, very cheap
+            if children.count <= 1 {
+                current = parentElement
+                continue
             }
+
+            // This node has multiple children — worth inspecting for text fields
+            let count = countTextFieldChildren(among: children)
+            if count >= 4 && count <= 8 {
+                return true
+            }
+
+            // Stop at AXWebArea — going higher won't help
+            let role = AXAttributes(element: parentElement).string(kAXRoleAttribute) ?? ""
+            if role == "AXWebArea" || role == "AXScrollArea" { break }
+
+            current = parentElement
         }
 
-        // Typical split OTP: 4-8 single-char inputs
-        return singleCharCount >= 4 && singleCharCount <= 8
+        return false
+    }
+
+    /// Count text fields among a set of children (also checks one level deeper for wrappers).
+    /// Accepts fields with maxLength == 1 or maxLength == nil (JS-controlled single char).
+    private static func countTextFieldChildren(among children: [AXUIElement]) -> Int {
+        var count = 0
+        for child in children {
+            let childAttrs = AXAttributes(element: child)
+            if childAttrs.isTextField {
+                let maxLen = childAttrs.maxLength
+                if maxLen == 1 || maxLen == nil {
+                    count += 1
+                }
+            } else {
+                // Check one level deeper for wrapped inputs (e.g. <div><input></div>)
+                var grandchildrenRef: CFTypeRef?
+                if AXUIElementCopyAttributeValue(child, kAXChildrenAttribute as CFString, &grandchildrenRef) == .success,
+                   let grandchildren = grandchildrenRef as? [AXUIElement] {
+                    for gc in grandchildren {
+                        let gcAttrs = AXAttributes(element: gc)
+                        if gcAttrs.isTextField {
+                            let maxLen = gcAttrs.maxLength
+                            if maxLen == 1 || maxLen == nil {
+                                count += 1
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return count
     }
 
     /// Check if the field constrains input to numeric with appropriate length.
@@ -182,6 +236,82 @@ struct OTPFieldDetector {
         return false
     }
 
+    /// Scan text content near the focused element.
+    /// Skips single-child wrapper nodes, collects text from nodes with multiple children.
+    private static func scanNearbyText(element: AXUIElement) -> Bool {
+        var collected = ""
+        var current = element
+
+        for _ in 0..<8 {
+            var parentRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(current, kAXParentAttribute as CFString, &parentRef) == .success,
+                  let parent = parentRef else { break }
+            let parentElement = parent as! AXUIElement
+
+            var childrenRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(parentElement, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+               let children = childrenRef as? [AXUIElement] {
+                // Skip single-child wrappers — no useful text siblings here
+                if children.count > 1 {
+                    for child in children {
+                        collectText(from: child, into: &collected, depth: 2)
+                    }
+                    // Once we've collected from a rich node, check immediately
+                    let lower = collected.lowercased()
+                    for phrase in pageContextPatterns {
+                        if lower.contains(phrase) { return true }
+                    }
+                }
+            }
+
+            // Stop at AXWebArea — going higher won't help
+            let role = AXAttributes(element: parentElement).string(kAXRoleAttribute) ?? ""
+            if role == "AXWebArea" || role == "AXScrollArea" { break }
+
+            current = parentElement
+        }
+
+        return false
+    }
+
+    /// Collect text attributes from a node and optionally its descendants.
+    private static func collectText(from element: AXUIElement, into buffer: inout String, depth: Int) {
+        let attrs = AXAttributes(element: element)
+        if let v = attrs.value, !v.isEmpty { buffer += " " + v }
+        if let t = attrs.title, !t.isEmpty { buffer += " " + t }
+        if let d = attrs.axDescription, !d.isEmpty { buffer += " " + d }
+
+        guard depth > 1 else { return }
+
+        var childrenRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+           let children = childrenRef as? [AXUIElement] {
+            for child in children {
+                collectText(from: child, into: &buffer, depth: depth - 1)
+            }
+        }
+    }
+
+    /// High-confidence page-level phrases that indicate an OTP flow.
+    private static let pageContextPatterns: [String] = [
+        // English
+        "check your email", "check your inbox",
+        "enter the code", "enter code below", "code below",
+        "sent a code", "sent you a code", "we sent", "we've sent", "we\u{2019}ve sent",
+        "verification code", "verify your",
+
+        // Chinese
+        "验证码", "校验码", "确认码",
+        "驗證碼", "確認碼",
+        "请输入", "請輸入",
+
+        // Japanese
+        "確認コード", "認証コード", "コードを入力",
+
+        // Korean
+        "인증번호", "인증 코드", "코드를 입력",
+    ]
+
     /// Match text against verification code patterns in multiple languages.
     private static func matchesVerificationPattern(_ text: String) -> Bool {
         let lower = text.lowercased()
@@ -201,6 +331,8 @@ struct OTPFieldDetector {
         "enter code", "enter the code", "digit code",
         "passcode", "pin code",
         "sent to your", "sent a code", "code sent",
+        "check your email", "check your inbox",
+        "confirm your email",
 
         // Chinese (Simplified + Traditional)
         "验证码", "校验码", "确认码", "动态码",
