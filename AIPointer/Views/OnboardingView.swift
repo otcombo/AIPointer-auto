@@ -5,6 +5,7 @@ import AVKit
 struct OnboardingView: View {
     @StateObject private var permissions = PermissionChecker()
     @StateObject private var openClawSetup = OpenClawSetupService()
+    @StateObject private var himalayaSetup = HimalayaSetupService()
 
     @State private var currentStep: Step = .fnKey
     @State private var pollTimer: Timer?
@@ -14,6 +15,10 @@ struct OnboardingView: View {
     // API Key input state
     @State private var selectedProvider: String = "anthropic"
     @State private var apiKeyInput: String = ""
+
+    // Himalaya email input state
+    @State private var himalayaEmailInput: String = ""
+    @State private var himalayaPasswordInput: String = ""
     @State private var showPatienceMessage: Bool = false
     @State private var setupStarted: Bool = false
     @State private var patienceWorkItem: DispatchWorkItem?
@@ -179,8 +184,8 @@ struct OnboardingView: View {
 
             HStack(spacing: 4) {
                 Image(systemName: "info.circle").font(.system(size: 11))
-                Text(L("需要安装 himalaya CLI 并配置邮箱 IMAP",
-                       "Requires himalaya CLI with IMAP configured"))
+                Text(L("需要配置邮箱 IMAP（最后一步可设置）",
+                       "Requires IMAP config (set up in last step)"))
                     .font(.system(size: 11))
             }
             .foregroundColor(.black.opacity(0.35))
@@ -272,18 +277,14 @@ struct OnboardingView: View {
                     .foregroundColor(.black)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 2) {
                         Text(title)
                             .font(.system(size: 14, weight: .medium))
                             .foregroundColor(.black)
                         if required {
-                            Text(L("必需", "Required"))
-                                .font(.system(size: 10, weight: .medium))
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 1)
-                                .background(Color.red.opacity(0.12))
+                            Text("*")
+                                .font(.system(size: 14, weight: .bold))
                                 .foregroundColor(.red)
-                                .cornerRadius(4)
                         }
                     }
                     Text(subtitle)
@@ -350,6 +351,11 @@ struct OnboardingView: View {
                     }
                     .foregroundColor(.orange)
                 }
+
+                // MARK: Himalaya Email Setup (Optional)
+                if !himalayaSetup.isSkipped {
+                    himalayaSection
+                }
             }
         }
         .onAppear {
@@ -357,6 +363,11 @@ struct OnboardingView: View {
             setupStarted = true
             openClawSetup.runFullSetup()
             schedulePatienceMessage()
+        }
+        .onChange(of: openClawSetup.allPhasesSucceeded) {
+            if openClawSetup.allPhasesSucceeded {
+                himalayaSetup.runFullSetup()
+            }
         }
     }
 
@@ -535,6 +546,230 @@ struct OnboardingView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(apiKeyInput.isEmpty)
+                }
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.orange.opacity(0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.orange.opacity(0.2), lineWidth: 1)
+                )
+        )
+    }
+
+    // MARK: - Himalaya Section
+
+    private var himalayaSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Divider with label
+            HStack(spacing: 8) {
+                Rectangle()
+                    .fill(Color.black.opacity(0.08))
+                    .frame(height: 1)
+                Text(L("邮件验证（可选）", "Email Verification (Optional)"))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.black.opacity(0.35))
+                    .fixedSize()
+                Rectangle()
+                    .fill(Color.black.opacity(0.08))
+                    .frame(height: 1)
+            }
+            .padding(.top, 4)
+
+            VStack(spacing: 6) {
+                himalayaPhaseRow(.install,
+                                 icon: "terminal.fill",
+                                 title: L("安装 Himalaya", "Install Himalaya"))
+                himalayaPhaseRow(.email,
+                                 icon: "envelope.fill",
+                                 title: L("配置邮箱", "Configure Email"))
+            }
+
+            // Email input section
+            if himalayaSetup.phaseStatuses[.email] == .needsInput {
+                himalayaEmailInputSection
+            }
+
+            // Skip button
+            if !himalayaSetup.isFinished {
+                Button(action: { himalayaSetup.skip() }) {
+                    Text(L("跳过邮件验证", "Skip email verification"))
+                        .font(.system(size: 12))
+                        .foregroundColor(.black.opacity(0.35))
+                        .underline()
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func himalayaPhaseRow(_ phase: HimalayaSetupService.SetupPhase, icon: String, title: String) -> some View {
+        let status = himalayaSetup.phaseStatuses[phase] ?? .pending
+
+        return HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 20))
+                .frame(width: 32, height: 32)
+                .foregroundColor(.black)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.black)
+
+                if let subtitle = himalayaPhaseSubtitle(status) {
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundColor(.black.opacity(0.4))
+                }
+            }
+
+            Spacer()
+
+            if case .failed = status {
+                Button(action: { himalayaSetup.retrySetup(from: phase) }) {
+                    Text(L("重试", "Retry"))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 5)
+                        .background(Color.black)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            } else {
+                himalayaPhaseStatusIcon(status)
+            }
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 14)
+        .padding(.vertical, 13)
+        .frame(height: 58)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(himalayaPhaseRowBackground(status))
+        )
+    }
+
+    @ViewBuilder
+    private func himalayaPhaseStatusIcon(_ status: HimalayaSetupService.PhaseStatus) -> some View {
+        switch status {
+        case .pending:
+            Image(systemName: "circle")
+                .font(.system(size: 14))
+                .foregroundColor(.black.opacity(0.2))
+        case .inProgress:
+            ProgressView()
+                .controlSize(.small)
+        case .succeeded:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 16))
+                .foregroundColor(.green)
+        case .needsInput:
+            Image(systemName: "envelope.fill")
+                .font(.system(size: 14))
+                .foregroundColor(.orange)
+        case .failed:
+            EmptyView()
+        case .skipped:
+            Image(systemName: "minus.circle")
+                .font(.system(size: 14))
+                .foregroundColor(.black.opacity(0.2))
+        }
+    }
+
+    private func himalayaPhaseSubtitle(_ status: HimalayaSetupService.PhaseStatus) -> String? {
+        switch status {
+        case .inProgress(let text): return text
+        case .succeeded(let text): return text.isEmpty ? nil : text
+        case .failed(let text): return text
+        case .needsInput: return L("需要输入邮箱和 App Password", "Email and App Password required")
+        case .skipped: return L("已跳过", "Skipped")
+        case .pending: return nil
+        }
+    }
+
+    private func himalayaPhaseRowBackground(_ status: HimalayaSetupService.PhaseStatus) -> Color {
+        switch status {
+        case .succeeded: return Color.green.opacity(0.05)
+        case .failed: return Color.red.opacity(0.05)
+        case .needsInput: return Color.orange.opacity(0.05)
+        case .skipped: return Color.black.opacity(0.02)
+        default: return Color.black.opacity(0.03)
+        }
+    }
+
+    private var himalayaEmailInputSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Email input
+            VStack(alignment: .leading, spacing: 4) {
+                Text(L("邮箱地址", "Email Address"))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.black)
+
+                TextField("user@example.com", text: $himalayaEmailInput)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 13))
+            }
+
+            // App Password input
+            VStack(alignment: .leading, spacing: 4) {
+                Text("App Password")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.black)
+
+                HStack(spacing: 8) {
+                    SecureField(L("应用专用密码", "App-specific password"), text: $himalayaPasswordInput)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 13))
+
+                    Button(action: {
+                        guard !himalayaEmailInput.isEmpty && !himalayaPasswordInput.isEmpty else { return }
+                        himalayaSetup.continueAfterEmail(email: himalayaEmailInput, appPassword: himalayaPasswordInput)
+                    }) {
+                        Text(L("保存", "Save"))
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 7)
+                            .background(
+                                (himalayaEmailInput.isEmpty || himalayaPasswordInput.isEmpty)
+                                ? Color.black.opacity(0.3) : Color.black
+                            )
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(himalayaEmailInput.isEmpty || himalayaPasswordInput.isEmpty)
+                }
+            }
+
+            // Inline guidance + clickable link based on email domain
+            if !himalayaEmailInput.isEmpty,
+               let help = HimalayaSetupService.appPasswordHelp(for: himalayaEmailInput) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(help.guide)
+                        .font(.system(size: 11))
+                        .foregroundColor(.black.opacity(0.5))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Button(action: {
+                        NSWorkspace.shared.open(help.url)
+                    }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.system(size: 10))
+                            Text(L("打开设置页面", "Open settings page"))
+                                .font(.system(size: 11))
+                        }
+                        .foregroundColor(.blue.opacity(0.7))
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { inside in
+                        if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
                 }
             }
         }
