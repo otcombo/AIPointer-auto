@@ -76,7 +76,7 @@ class BehaviorSensingService {
         }
 
         // Start focus detection if enabled
-        let focusEnabled = UserDefaults.standard.object(forKey: "focusDetectionEnabled") as? Bool ?? true
+        let focusEnabled = UserDefaults.standard.object(forKey: "focusDetectionEnabled") as? Bool ?? false
         if focusEnabled {
             startFocusDetection()
         }

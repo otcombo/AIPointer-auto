@@ -37,7 +37,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setbuf(stdout, nil) // Disable stdout buffering for real-time logs
-        try? "LAUNCH \(Date())\n".write(toFile: NSHomeDirectory() + "/aipointer_debug.log", atomically: true, encoding: .utf8)
+        OnboardingLog.clear()
+        OnboardingLog.log("App", "=== LAUNCH \(Date()) ===")
+        OnboardingLog.logSystemInfo()
         NSApp.setActivationPolicy(.accessory)
         swizzleCharacterPalette()
 
@@ -48,7 +50,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         )
 
         // 首次启动显示 onboarding，否则直接启动
-        if !UserDefaults.standard.bool(forKey: "onboardingCompleted") {
+        let onboardingCompleted = UserDefaults.standard.bool(forKey: "onboardingCompleted")
+        OnboardingLog.log("App", "onboardingCompleted=\(onboardingCompleted)")
+        if !onboardingCompleted {
             showOnboarding()
         } else {
             setupMenuBar()
@@ -65,21 +69,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     // MARK: - Setup
 
-    private let debugLog = NSHomeDirectory() + "/aipointer_debug.log"
-
     private func dbg(_ msg: String) {
-        let line = "\(Date()) \(msg)\n"
-        if let data = line.data(using: .utf8) {
-            if FileManager.default.fileExists(atPath: debugLog) {
-                if let fh = FileHandle(forWritingAtPath: debugLog) {
-                    fh.seekToEndOfFile()
-                    fh.write(data)
-                    fh.closeFile()
-                }
-            } else {
-                FileManager.default.createFile(atPath: debugLog, contents: data)
-            }
-        }
+        OnboardingLog.log("App", msg)
     }
 
     private func setupMenuBar() {
@@ -215,8 +206,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func startPointerSystem() {
+        dbg("[startPointerSystem] checking EventTap permission")
         // 权限检查：无论首次还是后续启动，都在此统一拦截
         guard EventTapManager.checkPermission() else {
+            dbg("[startPointerSystem] EventTap permission DENIED")
             EventTapManager.requestPermission()
             let alert = NSAlert()
             alert.messageText = "Input Monitoring Required"
@@ -391,7 +384,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func applyBehaviorSensingSettings() {
         guard let service = behaviorSensingService else { return }
         let defaults = UserDefaults.standard
-        let enabled = defaults.object(forKey: "behaviorSensingEnabled") as? Bool ?? true
+        let enabled = defaults.object(forKey: "behaviorSensingEnabled") as? Bool ?? false
         let sensitivity = defaults.double(forKey: "behaviorSensitivity")
         service.sensitivity = sensitivity > 0 ? sensitivity : 1.0
 

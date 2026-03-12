@@ -26,16 +26,17 @@ struct OnboardingView: View {
 
     var onComplete: () -> Void
 
+    private func log(_ msg: String) { OnboardingLog.log("Onboarding", msg) }
+
     enum Step: Int, CaseIterable {
         case fnKey = 0
         case autoVerify = 1
-        case smartSuggest = 2
-        case permissions = 3
-        case openclawSetup = 4
+        case permissions = 2
+        case openclawSetup = 3
     }
 
     private var showsIllustration: Bool {
-        currentStep == .fnKey || currentStep == .autoVerify || currentStep == .smartSuggest
+        currentStep == .fnKey || currentStep == .autoVerify
     }
 
     private var videoURL: URL? {
@@ -43,7 +44,6 @@ struct OnboardingView: View {
         switch currentStep {
         case .fnKey:        name = "AIPointer-Feature-1"
         case .autoVerify:   name = "AIPointer-Feature-2"
-        case .smartSuggest: name = "AIPointer-Feature-3"
         default:            return nil
         }
         return Bundle.module.url(forResource: name, withExtension: "mp4")
@@ -91,6 +91,7 @@ struct OnboardingView: View {
         .padding(.top, 44)          // shadow radius 32 + margin
         .padding(.bottom, 92)       // shadow radius 32 + y-offset 16 + margin
         .onAppear {
+            log("view appeared, starting at step=\(currentStep)")
             withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) {
                 isPresented = true
             }
@@ -106,7 +107,6 @@ struct OnboardingView: View {
         switch currentStep {
         case .fnKey:         return L("Fn 键，你的 AI 入口", "Fn Key, Your AI Gateway")
         case .autoVerify:    return L("验证码自动填充", "Auto-fill Verification Codes")
-        case .smartSuggest:  return L("行为感知，主动推荐", "Behavior-Aware Suggestions")
         case .permissions:   return L("系统权限", "System Permissions")
         case .openclawSetup: return L("OpenClaw 后端", "OpenClaw Backend")
         }
@@ -152,7 +152,6 @@ struct OnboardingView: View {
         switch currentStep {
         case .fnKey:         fnKeyContent
         case .autoVerify:    autoVerifyContent
-        case .smartSuggest:  smartSuggestContent
         case .permissions:   permissionsContent
         case .openclawSetup: openclawSetupContent
         }
@@ -193,20 +192,7 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: - Step 3: Smart Suggest
-
-    private var smartSuggestContent: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            featureRow(title: L("行为采集", "Activity Capture"),
-                       desc: L("记录操作信号，本地处理不上传", "Track activity signals, local only"))
-            featureRow(title: L("意图分析", "Intent Analysis"),
-                       desc: L("AI 分析操作模式，预判需求", "AI analyzes patterns to predict needs"))
-            featureRow(title: L("主动建议", "Proactive Suggestions"),
-                       desc: L("指针旁弹出建议，按 Fn 接受", "Tap Fn to accept suggestions"))
-        }
-    }
-
-    // MARK: - Step 4: Permissions
+    // MARK: - Step 3: Permissions
 
     private var permissionsContent: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -219,6 +205,7 @@ struct OnboardingView: View {
                     state: permissions.inputMonitoring, required: true,
                     action: {
                         trackPermissionClick("inputMonitoring")
+                        permissions.requestInputMonitoring()
                         permissions.openInputMonitoringSettings()
                     }
                 )
@@ -240,7 +227,7 @@ struct OnboardingView: View {
                     state: permissions.screenRecording, required: false,
                     action: {
                         clickedPermissions.insert("screenRecording")
-                        permissions.openScreenRecordingSettings()
+                        Task { _ = await PermissionChecker.isScreenRecordingGranted() }
                     }
                 )
             }
@@ -361,6 +348,7 @@ struct OnboardingView: View {
         .onAppear {
             guard !setupStarted else { return }
             setupStarted = true
+            log("Step[openclawSetup] appeared, starting full setup")
             openClawSetup.runFullSetup()
             schedulePatienceMessage()
         }
@@ -849,6 +837,7 @@ struct OnboardingView: View {
                 if currentStep == .permissions && shouldOfferRelaunch {
                     relaunchApp()
                 } else if currentStep == .openclawSetup {
+                    log("onboarding completing (Get Started pressed)")
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.9)) {
                         isPresented = false
                     }
@@ -859,6 +848,7 @@ struct OnboardingView: View {
                 } else {
                     withAnimation(.easeInOut(duration: 0.25)) {
                         if let next = Step(rawValue: currentStep.rawValue + 1) {
+                            log("step \(currentStep) → \(next)")
                             currentStep = next
                         }
                     }
@@ -887,7 +877,6 @@ struct OnboardingView: View {
         switch currentStep {
         case .fnKey:         return L("继续", "Continue")
         case .autoVerify:    return L("继续", "Continue")
-        case .smartSuggest:  return L("继续", "Continue")
         case .permissions:
             if permissions.allRequiredGranted {
                 return L("继续", "Continue")
@@ -925,11 +914,13 @@ struct OnboardingView: View {
     }
 
     private func trackPermissionClick(_ key: String) {
+        log("permission clicked: \(key)")
         clickedPermissions.insert(key)
         pollsSinceFirstClick = 0
     }
 
     private func relaunchApp() {
+        log("relaunchApp from bundlePath=\(Bundle.main.bundlePath)")
         let bundlePath = Bundle.main.bundlePath
         let task = Process()
         task.launchPath = "/usr/bin/open"
@@ -941,6 +932,8 @@ struct OnboardingView: View {
     // MARK: - Permission Polling
 
     private func startPermissionPolling() {
+        permissions.checkRequired()
+        log("Step[permissions] polling started, inputMonitoring=\(permissions.inputMonitoring), accessibility=\(permissions.accessibility), screenRecording=\(permissions.screenRecording)")
         pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
             Task { @MainActor in
                 permissions.checkRequired()

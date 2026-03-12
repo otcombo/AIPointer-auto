@@ -6,9 +6,9 @@ struct SettingsView: View {
     @AppStorage("backendURL") private var backendURL = "http://localhost:18789"
     @AppStorage("agentId") private var agentId = "main"
     @AppStorage("responseLanguage") private var responseLanguage = defaultResponseLanguage
-    @AppStorage("behaviorSensingEnabled") private var behaviorSensingEnabled = true
+    @AppStorage("behaviorSensingEnabled") private var behaviorSensingEnabled = false
     @AppStorage("behaviorSensitivity") private var behaviorSensitivity = 1.0
-    @AppStorage("focusDetectionEnabled") private var focusDetectionEnabled = true
+    @AppStorage("focusDetectionEnabled") private var focusDetectionEnabled = false
     @AppStorage("focusDetectionWindow") private var focusDetectionWindow = 5.0
     @AppStorage("focusCooldownDetected") private var focusCooldownDetected = 10.0
     @AppStorage("focusCooldownMissed") private var focusCooldownMissed = 2.0
@@ -209,6 +209,28 @@ struct SettingsView: View {
                 Button("Show Onboarding") {
                     NotificationCenter.default.post(name: .showOnboarding, object: nil)
                 }
+
+                Divider()
+
+                HStack {
+                    Button("Copy Log") {
+                        let log = OnboardingLog.readAll()
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(log.isEmpty ? "(empty)" : log, forType: .string)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                    Button("Open Log") {
+                        NSWorkspace.shared.open(URL(fileURLWithPath: OnboardingLog.logPath))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+                Text("Log: ~/aipointer_debug.log")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .textSelection(.enabled)
             }
         }
         .formStyle(.grouped)

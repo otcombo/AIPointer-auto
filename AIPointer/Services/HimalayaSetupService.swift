@@ -120,9 +120,12 @@ class HimalayaSetupService: ObservableObject {
         }
     }
 
+    private func log(_ msg: String) { OnboardingLog.log("Himalaya", msg) }
+
     // MARK: - Setup Flow
 
     func runFullSetup() {
+        log("runFullSetup starting")
         guard !isSkipped else { return }
         setupTask?.cancel()
 
@@ -140,6 +143,7 @@ class HimalayaSetupService: ObservableObject {
     }
 
     func skip() {
+        log("user skipped himalaya setup")
         setupTask?.cancel()
         for phase in SetupPhase.allCases {
             phaseStatuses[phase] = .skipped
@@ -150,22 +154,27 @@ class HimalayaSetupService: ObservableObject {
     // MARK: - Phase 1: Install
 
     private func runInstallPhase() async {
+        log("Phase[install] starting")
         phaseStatuses[.install] = .inProgress(L("检测中...", "Checking..."))
 
         if let found = await findHimalaya() {
             installedPath = found
             let version = await fetchVersion(path: found)
+            log("Phase[install] found existing: \(found), version: \(version ?? "unknown")")
             let desc = version ?? found
             phaseStatuses[.install] = .succeeded(L("已安装 \(desc)", "Installed \(desc)"))
             return
         }
 
         // Not installed — try brew first
+        log("Phase[install] not found, attempting installation")
         phaseStatuses[.install] = .inProgress(L("正在安装...", "Installing..."))
 
         let brewAvailable = await runShell("which brew") != nil
+        log("Phase[install] brew available: \(brewAvailable)")
         if brewAvailable {
-            let _ = await runShell("brew install himalaya")
+            let result = await runShell("brew install himalaya")
+            log("Phase[install] brew install result: \(result?.prefix(200) ?? "nil")")
         } else {
             // Download from GitHub releases
             let binDir = NSHomeDirectory() + "/.local/bin"
@@ -174,23 +183,27 @@ class HimalayaSetupService: ObservableObject {
             let arch = await runShell("uname -m")
             let archTrimmed = arch?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "arm64"
             let target = archTrimmed == "x86_64" ? "x86_64-apple-darwin" : "aarch64-apple-darwin"
+            log("Phase[install] downloading for target: \(target)")
             let downloadCmd = """
             curl -sL "https://github.com/pimalaya/himalaya/releases/latest/download/himalaya-\(target).tar.gz" | tar xz -C '\(binDir)'
             """
-            let _ = await runShell(downloadCmd)
+            let result = await runShell(downloadCmd)
+            log("Phase[install] download result: \(result?.prefix(200) ?? "nil")")
         }
 
-        if Task.isCancelled { return }
+        if Task.isCancelled { log("Phase[install] cancelled"); return }
 
         // Re-check after install
         if let found = await findHimalaya() {
             installedPath = found
             let version = await fetchVersion(path: found)
+            log("Phase[install] succeeded after install: \(found)")
             let desc = version ?? found
             phaseStatuses[.install] = .succeeded(L("已安装 \(desc)", "Installed \(desc)"))
             return
         }
 
+        log("Phase[install] FAILED: not found after install attempt")
         phaseStatuses[.install] = .failed(L("安装失败", "Installation failed"))
     }
 
@@ -222,29 +235,37 @@ class HimalayaSetupService: ObservableObject {
     // MARK: - Phase 2: Email
 
     private func runEmailPhase() async {
+        log("Phase[email] starting, configPath=\(configPath)")
         phaseStatuses[.email] = .inProgress(L("检查邮箱配置...", "Checking email config..."))
 
         // Check if config already exists
-        if FileManager.default.fileExists(atPath: configPath) {
+        let configExists = FileManager.default.fileExists(atPath: configPath)
+        log("Phase[email] config exists: \(configExists)")
+        if configExists {
             // Try to verify the account
             if let path = installedPath {
+                log("Phase[email] running 'himalaya account doctor'")
                 let result = await runShell("\(path) account doctor")
                 if Task.isCancelled { return }
                 if let output = result, !output.contains("error") && !output.contains("Error") {
+                    log("Phase[email] existing config verified OK")
                     phaseStatuses[.email] = .succeeded(L("已配置", "Configured"))
                     return
                 }
+                log("Phase[email] account doctor output: \(result?.prefix(300) ?? "nil")")
             }
         }
 
         if Task.isCancelled { return }
 
+        log("Phase[email] requesting user input")
         // No config or check failed — need user input
         phaseStatuses[.email] = .needsInput
     }
 
     /// 用户提交邮箱和 App Password 后调用
     func continueAfterEmail(email: String, appPassword: String) {
+        log("continueAfterEmail: \(email), server=\(Self.imapServer(for: email))")
         setupTask?.cancel()
 
         setupTask = Task {
@@ -273,7 +294,9 @@ class HimalayaSetupService: ObservableObject {
             // Write config file
             do {
                 try configContent.write(toFile: configPath, atomically: true, encoding: .utf8)
+                log("Phase[email] config written to \(configPath)")
             } catch {
+                log("Phase[email] FAILED to write config: \(error)")
                 phaseStatuses[.email] = .failed(L("配置写入失败", "Failed to write config"))
                 return
             }
@@ -282,17 +305,21 @@ class HimalayaSetupService: ObservableObject {
 
             // Verify
             guard let path = installedPath else {
+                log("Phase[email] FAILED: installedPath is nil")
                 phaseStatuses[.email] = .failed(L("找不到 himalaya", "himalaya not found"))
                 return
             }
 
+            log("Phase[email] running 'himalaya account doctor' for verification")
             let result = await runShell("\(path) account doctor")
             if Task.isCancelled { return }
 
             if let output = result, !output.lowercased().contains("error") {
+                log("Phase[email] verification succeeded")
                 phaseStatuses[.email] = .succeeded(L("验证通过", "Verified"))
             } else {
                 let errorMsg = result?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                log("Phase[email] verification FAILED: \(errorMsg)")
                 phaseStatuses[.email] = .failed(
                     L("验证失败", "Verification failed") + (errorMsg.isEmpty ? "" : ": \(errorMsg)")
                 )
@@ -327,21 +354,36 @@ class HimalayaSetupService: ObservableObject {
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 let process = Process()
-                let pipe = Pipe()
+                let stdoutPipe = Pipe()
+                let stderrPipe = Pipe()
 
                 process.executableURL = URL(fileURLWithPath: "/bin/zsh")
                 process.arguments = ["-l", "-c", command]
-                process.standardOutput = pipe
-                process.standardError = pipe
+                process.standardOutput = stdoutPipe
+                process.standardError = stderrPipe
                 process.standardInput = FileHandle.nullDevice
 
                 do {
                     try process.run()
                     process.waitUntilExit()
-                    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                    let output = String(data: data, encoding: .utf8)
-                    continuation.resume(returning: output)
+                    let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                    let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                    let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
+                    let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+                    let exitCode = process.terminationStatus
+
+                    let cmdShort = command.count > 80 ? String(command.prefix(80)) + "..." : command
+                    if exitCode != 0 || !stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        OnboardingLog.log("Himalaya", "shell exit=\(exitCode) cmd=\(cmdShort)")
+                        if !stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            OnboardingLog.log("Himalaya", "shell stderr: \(stderr.trimmingCharacters(in: .whitespacesAndNewlines))")
+                        }
+                    }
+
+                    let result = stdout.isEmpty ? stderr : stdout
+                    continuation.resume(returning: result.isEmpty ? nil : result)
                 } catch {
+                    OnboardingLog.log("Himalaya", "shell exception: \(error) cmd=\(command)")
                     continuation.resume(returning: nil)
                 }
             }
