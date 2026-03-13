@@ -22,7 +22,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var cursorHider: CursorHider!
     private var viewModel: PointerViewModel!
     private var verificationService: VerificationService!
-    private var openClawService: OpenClawService!
     private var behaviorSensingService: BehaviorSensingService!
     private var settingsWindow: NSWindow?
     private var isEnabled = true
@@ -37,6 +36,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setbuf(stdout, nil) // Disable stdout buffering for real-time logs
+        terminateExistingInstances()
         OnboardingLog.clear()
         OnboardingLog.log("App", "=== LAUNCH \(Date()) ===")
         OnboardingLog.logSystemInfo()
@@ -65,6 +65,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         eventTapManager?.stop()
         verificationService?.stop()
         behaviorSensingService?.stop()
+    }
+
+    // MARK: - Single Instance
+
+    /// Kill any previously running AIPointer processes (useful during development with `swift run`)
+    private func terminateExistingInstances() {
+        let myPID = ProcessInfo.processInfo.processIdentifier
+        let myName = ProcessInfo.processInfo.processName  // "AIPointer"
+        for app in NSWorkspace.shared.runningApplications {
+            guard app.processIdentifier != myPID,
+                  app.executableURL?.lastPathComponent == myName else { continue }
+            app.terminate()
+        }
     }
 
     // MARK: - Setup
@@ -239,7 +252,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         cursorHider = CursorHider()
         viewModel = PointerViewModel()
         eventTapManager = EventTapManager()
-        openClawService = OpenClawService()
 
         // Apply stored settings
         applySettings()
@@ -342,7 +354,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // Verification code service — passively monitors for OTP fields
         verificationService = VerificationService()
-        verificationService.openClawService = openClawService
         verificationService.onStateChanged = { [weak self] state in
             self?.viewModel.updateVerificationState(state)
         }
@@ -350,7 +361,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // Behavior sensing service — passively monitors user actions
         behaviorSensingService = BehaviorSensingService()
-        behaviorSensingService.openClawService = openClawService
         behaviorSensingService.onAnalysisResult = { [weak self] analysis in
             self?.viewModel.updateBehaviorSuggestion(analysis)
         }
@@ -374,11 +384,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func applySettings() {
         let defaults = UserDefaults.standard
         eventTapManager.suppressFnKey = defaults.object(forKey: "suppressFnKey") as? Bool ?? true
-
-        let url = (defaults.string(forKey: "backendURL") ?? "http://localhost:18789").trimmingCharacters(in: .whitespacesAndNewlines)
-
-        viewModel.configureAPI(baseURL: url)
-        openClawService.configure(baseURL: url)
+        viewModel.configureAPI(baseURL: "")
     }
 
     private func applyBehaviorSensingSettings() {

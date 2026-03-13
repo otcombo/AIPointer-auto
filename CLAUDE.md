@@ -14,7 +14,7 @@ swift build -c release         # release build
 
 Build output: `.build/debug/AIPointer` or `.build/release/AIPointer`.
 
-Config file: `~/.openclaw/openclaw.json` (backend URL, API keys). Read by `OpenClawService`.
+Config: API key stored in UserDefaults (`anthropicAPIKey`). Configured via Settings or Onboarding.
 
 ## Architecture
 
@@ -44,7 +44,7 @@ When adding a new component: instantiate it in `AppDelegate`, wire its closures 
 | Core | `OverlayPanel` | `.screenSaver`-level NSPanel, click-through when idle |
 | Core | `CursorHider` | Hides system cursor via `CGDisplayHideCursor` |
 | ViewModel | `PointerViewModel` | State machine owner, AI communication |
-| Service | `OpenClawService` | Dual-backend SSE client (OpenClaw + Anthropic) |
+| Service | `OpenClawService` | Anthropic Messages API SSE client (direct) |
 | Service | `VerificationService` | OTP detection → auto-fill pipeline |
 | Service | `BehaviorSensingService` | Behavior scoring (2s) + focus detection (30s) |
 | View | `PointerRootView` | Top-level `switch` on `PointerState` |
@@ -58,12 +58,10 @@ macOS Fn/Globe triggers the emoji picker. Four layers suppress it — preserve a
 3. **Custom NSTextFieldCell FieldEditor** — editor-level intercept (`AppKitTextField`)
 4. **Method swizzle** — `NSApplication.orderFrontCharacterPalette` noop as last resort
 
-### Dual AI backend
+### AI backend
 
-| Input | Backend | Protocol |
-|-------|---------|----------|
-| Text only | OpenClaw gateway | OpenAI-compatible SSE `/v1/chat/completions` |
-| With image | Anthropic Messages API | Anthropic SSE `/v1/messages` |
+All chat (text and images) goes through Anthropic Messages API directly (`/v1/messages` SSE).
+No intermediate gateway. API key stored in UserDefaults (`anthropicAPIKey`).
 
 Images are auto-compressed to ≤300KB, dimensions clamped to 200–1568px.
 
@@ -123,7 +121,7 @@ Use `Defaults.L.key` for user-facing strings. Inline localization via system lan
 4. Store strong reference in `AppDelegate` property
 
 ### Add an onboarding step
-Onboarding has **5 steps** (fnKey → autoVerify → smartSuggest → permissions → openclawSetup). Steps are defined in `OnboardingView.Step` enum. To add a step: add a case, implement its view section, and update the step dot indicators.
+Onboarding has **4 steps** (fnKey → autoVerify → permissions → apiKeySetup). Steps are defined in `OnboardingView.Step` enum. To add a step: add a case, implement its view section, and update the step dot indicators.
 
 ### Add a new event handler
 1. Add closure property to `EventTapManager` (e.g., `var onNewEvent: ((SomeType) -> Void)?`)
@@ -131,4 +129,7 @@ Onboarding has **5 steps** (fnKey → autoVerify → smartSuggest → permission
 3. Wire it in `AppDelegate.startPointerSystem()`
 
 ### Change AI communication
-Modify `OpenClawService`. Text-only goes through OpenClaw gateway; image-attached goes through Anthropic direct. Both return `AsyncThrowingStream<SSEEvent>`. Keep the stream contract: `.delta` for incremental text, `.done` for completion.
+Modify `OpenClawService`. All messages go through Anthropic Messages API directly. Returns `AsyncThrowingStream<SSEEvent>`. Keep the stream contract: `.delta` for incremental text, `.done` for completion.
+
+### OTP email verification
+`CodeSourceMonitor` calls himalaya CLI directly via `Process` + regex extraction. No LLM involved. Notification Center AX observer is the secondary source.

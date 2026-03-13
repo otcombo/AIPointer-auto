@@ -4,7 +4,6 @@ import AVKit
 /// 首次启动引导流程 — Figma onboarding dialog 样式
 struct OnboardingView: View {
     @StateObject private var permissions = PermissionChecker()
-    @StateObject private var openClawSetup = OpenClawSetupService()
     @StateObject private var himalayaSetup = HimalayaSetupService()
 
     @State private var currentStep: Step = .fnKey
@@ -13,15 +12,12 @@ struct OnboardingView: View {
     @State private var pollsSinceFirstClick = 0
 
     // API Key input state
-    @State private var selectedProvider: String = "anthropic"
     @State private var apiKeyInput: String = ""
+    @State private var apiKeySaved: Bool = false
 
     // Himalaya email input state
     @State private var himalayaEmailInput: String = ""
     @State private var himalayaPasswordInput: String = ""
-    @State private var showPatienceMessage: Bool = false
-    @State private var setupStarted: Bool = false
-    @State private var patienceWorkItem: DispatchWorkItem?
     @State private var isPresented = false
 
     var onComplete: () -> Void
@@ -32,7 +28,7 @@ struct OnboardingView: View {
         case fnKey = 0
         case autoVerify = 1
         case permissions = 2
-        case openclawSetup = 3
+        case apiKeySetup = 3
     }
 
     private var showsIllustration: Bool {
@@ -92,6 +88,9 @@ struct OnboardingView: View {
         .padding(.bottom, 92)       // shadow radius 32 + y-offset 16 + margin
         .onAppear {
             log("view appeared, starting at step=\(currentStep)")
+            // Load existing API key if any
+            apiKeyInput = UserDefaults.standard.string(forKey: "anthropicAPIKey") ?? ""
+            apiKeySaved = !apiKeyInput.isEmpty
             withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) {
                 isPresented = true
             }
@@ -108,7 +107,7 @@ struct OnboardingView: View {
         case .fnKey:         return L("Fn 键，你的 AI 入口", "Fn Key, Your AI Gateway")
         case .autoVerify:    return L("验证码自动填充", "Auto-fill Verification Codes")
         case .permissions:   return L("系统权限", "System Permissions")
-        case .openclawSetup: return L("OpenClaw 后端", "OpenClaw Backend")
+        case .apiKeySetup:   return L("AI 配置", "AI Configuration")
         }
     }
 
@@ -117,9 +116,9 @@ struct OnboardingView: View {
         case .permissions:
             return L("点击对应权限行打开系统设置页面，授权后自动检测。",
                      "Tap a row to open System Settings. Permissions are detected automatically.")
-        case .openclawSetup:
-            return L("AIPointer 正在自动配置 OpenClaw 后端。",
-                     "AIPointer is automatically configuring the OpenClaw backend.")
+        case .apiKeySetup:
+            return L("输入你的 Anthropic API Key 以启用 AI 功能。",
+                     "Enter your Anthropic API Key to enable AI features.")
         default:
             return nil
         }
@@ -153,7 +152,7 @@ struct OnboardingView: View {
         case .fnKey:         fnKeyContent
         case .autoVerify:    autoVerifyContent
         case .permissions:   permissionsContent
-        case .openclawSetup: openclawSetupContent
+        case .apiKeySetup:   apiKeySetupContent
         }
     }
 
@@ -227,7 +226,15 @@ struct OnboardingView: View {
                     state: permissions.screenRecording, required: false,
                     action: {
                         clickedPermissions.insert("screenRecording")
-                        Task { _ = await PermissionChecker.isScreenRecordingGranted() }
+                        // Check once to trigger the system prompt, then open settings
+                        Task {
+                            let granted = await PermissionChecker.isScreenRecordingGranted()
+                            if !granted {
+                                permissions.openScreenRecordingSettings()
+                            } else {
+                                permissions.screenRecording = .granted
+                            }
+                        }
                     }
                 )
             }
@@ -303,92 +310,52 @@ struct OnboardingView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Step 5: OpenClaw Setup (4-phase checklist)
+    // MARK: - Step 4: API Key + Himalaya Setup
 
-    private var openclawSetupContent: some View {
+    private var apiKeySetupContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-                VStack(spacing: 6) {
-                    phaseRow(.install,
-                             icon: "shippingbox.fill",
-                             title: L("安装 OpenClaw", "Install OpenClaw"))
-                    phaseRow(.gateway,
-                             icon: "bolt.fill",
-                             title: L("启动 Gateway", "Start Gateway"))
-                    phaseRow(.apiKey,
-                             icon: "key.fill",
-                             title: L("配置 API Key", "Configure API Key"))
-                }
+                // API Key card
+                apiKeyCard
 
-                // Patience message for long install
-                if showPatienceMessage {
-                    HStack(spacing: 4) {
-                        Image(systemName: "clock").font(.system(size: 11))
-                        Text(L("安装时间较长，请耐心等待",
-                               "Installation is taking a while, please be patient"))
-                            .font(.system(size: 11))
-                    }
-                    .foregroundColor(.orange)
-                }
-
-                // MARK: Himalaya Email Setup (Optional)
+                // Himalaya section (optional)
                 if !himalayaSetup.isSkipped {
                     himalayaSection
                 }
             }
         }
         .onAppear {
-            guard !setupStarted else { return }
-            setupStarted = true
-            log("Step[openclawSetup] appeared, starting full setup")
-            openClawSetup.runFullSetup()
-            schedulePatienceMessage()
-        }
-        .onChange(of: openClawSetup.allPhasesSucceeded) {
-            if openClawSetup.allPhasesSucceeded {
-                himalayaSetup.runFullSetup()
-            }
+            // Start himalaya setup in background
+            himalayaSetup.runFullSetup()
         }
     }
 
-    @ViewBuilder
-    private func phaseRow(_ phase: OpenClawSetupService.SetupPhase, icon: String, title: String) -> some View {
-        let status = openClawSetup.phaseStatuses[phase] ?? .pending
-
+    private var apiKeyCard: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
-                Image(systemName: icon)
+                Image(systemName: "key.fill")
                     .font(.system(size: 20))
                     .frame(width: 32, height: 32)
                     .foregroundColor(.black)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
+                    Text("Anthropic API Key")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(.black)
 
-                    if let subtitle = phaseSubtitle(status) {
-                        Text(subtitle)
-                            .font(.system(size: 11))
-                            .foregroundColor(.black.opacity(0.4))
-                    }
+                    Text(apiKeySaved
+                         ? L("已配置", "Configured")
+                         : L("需要 API Key 以使用 AI 功能", "Required for AI features"))
+                        .font(.system(size: 11))
+                        .foregroundColor(.black.opacity(0.4))
                 }
 
                 Spacer()
 
-                if case .failed = status {
-                    Button(action: { retryPhase(phase) }) {
-                        Text(L("重试", "Retry"))
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 5)
-                            .background(Color.black)
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                } else {
-                    phaseStatusIcon(status)
+                if apiKeySaved {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(.green)
                 }
             }
             .padding(.leading, 10)
@@ -396,152 +363,51 @@ struct OnboardingView: View {
             .padding(.vertical, 13)
             .frame(minHeight: 58)
 
-            if phase == .apiKey && status == .needsInput {
+            if !apiKeySaved {
                 Rectangle()
                     .fill(Color.orange.opacity(0.15))
                     .frame(height: 1)
                     .padding(.horizontal, 10)
-                apiKeyInputSection
-                    .padding(12)
+
+                VStack(alignment: .trailing, spacing: 12) {
+                    HStack {
+                        Text("API Key")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.black)
+
+                        Spacer()
+
+                        SecureField("sk-ant-...", text: $apiKeyInput)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 13))
+                    }
+
+                    Button(action: saveApiKey) {
+                        Text(L("保存", "Save"))
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 7)
+                            .background(apiKeyInput.isEmpty ? Color.black.opacity(0.3) : Color.black)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(apiKeyInput.isEmpty)
+                }
+                .padding(12)
             }
         }
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(phaseRowBackground(status))
+                .fill(apiKeySaved ? Color.green.opacity(0.05) : Color.orange.opacity(0.05))
         )
     }
 
-    @ViewBuilder
-    private func phaseStatusIcon(_ status: OpenClawSetupService.PhaseStatus) -> some View {
-        switch status {
-        case .pending:
-            Image(systemName: "circle")
-                .font(.system(size: 14))
-                .foregroundColor(.black.opacity(0.2))
-        case .inProgress:
-            ProgressView()
-                .controlSize(.small)
-        case .succeeded:
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 16))
-                .foregroundColor(.green)
-        case .needsInput:
-            Image(systemName: "key.fill")
-                .font(.system(size: 14))
-                .foregroundColor(.orange)
-        case .failed:
-            EmptyView() // Handled by Retry button in phaseRow
-        }
-    }
-
-    private func phaseSubtitle(_ status: OpenClawSetupService.PhaseStatus) -> String? {
-        switch status {
-        case .inProgress(let text): return text
-        case .succeeded(let text): return text.isEmpty ? nil : text
-        case .failed(let text): return text
-        case .needsInput: return L("需要输入 API Key", "API Key required")
-        case .pending: return nil
-        }
-    }
-
-    private func phaseRowBackground(_ status: OpenClawSetupService.PhaseStatus) -> Color {
-        switch status {
-        case .succeeded: return Color.green.opacity(0.05)
-        case .failed: return Color.red.opacity(0.05)
-        case .needsInput: return Color.orange.opacity(0.05)
-        default: return Color.black.opacity(0.03)
-        }
-    }
-
-    private func retryPhase(_ phase: OpenClawSetupService.SetupPhase) {
-        showPatienceMessage = false
-        openClawSetup.runSetup(from: phase)
-        if phase == .install {
-            schedulePatienceMessage()
-        }
-    }
-
-    private func schedulePatienceMessage() {
-        patienceWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [self] in
-            if case .inProgress = openClawSetup.phaseStatuses[.install] ?? .pending {
-                showPatienceMessage = true
-            }
-        }
-        patienceWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 180, execute: workItem)
-    }
-
-    // MARK: - API Key Input Section
-
-    private var apiKeyInputSection: some View {
-        VStack(alignment: .trailing, spacing: 12) {
-            // Provider selector
-            HStack {
-                Text(L("LLM 提供商", "LLM Provider"))
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.black)
-
-                Spacer()
-
-                Menu {
-                    Button("Anthropic") { selectedProvider = "anthropic" }
-                    Button("OpenAI") { selectedProvider = "openai" }
-                    Button("OpenRouter") { selectedProvider = "openrouter" }
-                    Button("Google") { selectedProvider = "google" }
-                    Button("Groq") { selectedProvider = "groq" }
-                    Button("Mistral") { selectedProvider = "mistral" }
-                    Button("xAI") { selectedProvider = "xai" }
-                    Button("Cerebras") { selectedProvider = "cerebras" }
-                } label: {
-                    HStack(spacing: 6) {
-                        Text(providerDisplayName(selectedProvider))
-                            .font(.system(size: 13))
-                            .foregroundColor(.black)
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(.black.opacity(0.4))
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color.black.opacity(0.15), lineWidth: 1)
-                    )
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-            }
-
-            // API Key input
-            HStack {
-                Text("API Key")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.black)
-
-                Spacer()
-
-                SecureField("sk-...", text: $apiKeyInput)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 13))
-            }
-
-            // Save button
-            Button(action: {
-                guard !apiKeyInput.isEmpty else { return }
-                openClawSetup.continueAfterAPIKey(provider: selectedProvider, apiKey: apiKeyInput)
-            }) {
-                Text(L("保存", "Save"))
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 7)
-                    .background(apiKeyInput.isEmpty ? Color.black.opacity(0.3) : Color.black)
-                    .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(apiKeyInput.isEmpty)
-        }
+    private func saveApiKey() {
+        guard !apiKeyInput.isEmpty else { return }
+        UserDefaults.standard.set(apiKeyInput, forKey: "anthropicAPIKey")
+        apiKeySaved = true
+        log("API key saved")
     }
 
     // MARK: - Himalaya Section
@@ -792,20 +658,6 @@ struct OnboardingView: View {
         }
     }
 
-    private func providerDisplayName(_ provider: String) -> String {
-        switch provider {
-        case "anthropic":   return "Anthropic"
-        case "openai":      return "OpenAI"
-        case "openrouter":  return "OpenRouter"
-        case "google":      return "Google"
-        case "groq":        return "Groq"
-        case "mistral":     return "Mistral"
-        case "xai":         return "xAI"
-        case "cerebras":    return "Cerebras"
-        default:            return provider
-        }
-    }
-
     // MARK: - Shared Components
 
     private func featureRow(title: String, desc: String) -> some View {
@@ -856,7 +708,7 @@ struct OnboardingView: View {
             onboardingButton(nextButtonTitle) {
                 if currentStep == .permissions && shouldOfferRelaunch {
                     relaunchApp()
-                } else if currentStep == .openclawSetup {
+                } else if currentStep == .apiKeySetup {
                     log("onboarding completing (Get Started pressed)")
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.9)) {
                         isPresented = false
@@ -905,20 +757,13 @@ struct OnboardingView: View {
             } else {
                 return L("请先开启权限", "Grant permissions first")
             }
-        case .openclawSetup:
-            if openClawSetup.allPhasesSucceeded {
-                return L("开始使用", "Get Started")
-            } else {
-                return L("设置中...", "Setting up...")
-            }
+        case .apiKeySetup:
+            return L("开始使用", "Get Started")
         }
     }
 
     private var isNextDisabled: Bool {
         if currentStep == .permissions && !permissions.allRequiredGranted && !shouldOfferRelaunch {
-            return true
-        }
-        if currentStep == .openclawSetup && !openClawSetup.allPhasesSucceeded {
             return true
         }
         return false
@@ -958,9 +803,12 @@ struct OnboardingView: View {
             Task { @MainActor in
                 permissions.checkRequired()
 
-                // Check screen recording only after user has clicked that row
+                // Screen recording: only re-check if user clicked the row AND we haven't granted yet
+                // Use CGPreflightScreenCaptureAccess (no prompt) instead of SCShareableContent (triggers prompt)
                 if clickedPermissions.contains("screenRecording") && permissions.screenRecording != .granted {
-                    permissions.screenRecording = await PermissionChecker.isScreenRecordingGranted() ? .granted : .denied
+                    if CGPreflightScreenCaptureAccess() {
+                        permissions.screenRecording = .granted
+                    }
                 }
 
                 // Remove granted permissions from clicked set

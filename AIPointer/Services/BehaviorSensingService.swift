@@ -42,7 +42,6 @@ class BehaviorSensingService {
     let monitor: BehaviorMonitor
     let tabSnapshotCache = TabSnapshotCache()
 
-    var openClawService: OpenClawService?
     var onAnalysisResult: ((BehaviorAnalysis) -> Void)?
 
     var sensitivity: Double {
@@ -93,13 +92,11 @@ class BehaviorSensingService {
     // MARK: - Focus Detection
 
     func startFocusDetection() {
-        guard let openClaw = openClawService else { return }
         guard !isFocusDetectionRunning else { return }
 
         focusDetectionService = FocusDetectionService(
             buffer: buffer,
-            tabCache: tabSnapshotCache,
-            openClawService: openClaw
+            tabCache: tabSnapshotCache
         )
         applyFocusDetectionSettings()
         isFocusDetectionRunning = true
@@ -171,57 +168,10 @@ class BehaviorSensingService {
     }
 
     private func analyze() {
-        guard let service = openClawService else { return }
-        isAnalyzing = true
-
-        let events = buffer.snapshot(lastSeconds: 180) // 3-minute window
-        let compressed = compressEvents(events, maxCount: 30)
-        let keywords = extractKeywords(from: compressed)
-
-        Task {
-            defer {
-                self.isAnalyzing = false
-                self.lastAnalysisTime = Date()
-            }
-
-            // Search for relevant skills (non-blocking, 2s timeout)
-            var skills: [(name: String, description: String)] = []
-            if !keywords.isEmpty {
-                print("[BehaviorSensing] Keywords: \(keywords.joined(separator: ", "))")
-                skills = await searchSkills(keywords: keywords)
-                if !skills.isEmpty {
-                    print("[BehaviorSensing] Found skills: \(skills.map { $0.name }.joined(separator: ", "))")
-                }
-            }
-
-            let prompt = buildPrompt(events: compressed, skills: skills)
-
-            do {
-                var fullResponse = ""
-                let stream = service.executeCommand(prompt: prompt, agentId: "aipointer")
-                for try await event in stream {
-                    switch event {
-                    case .delta(let chunk):
-                        fullResponse += chunk
-                    case .done, .status, .error:
-                        break
-                    }
-                }
-
-                if let analysis = parseAnalysis(fullResponse) {
-                    print("[BehaviorSensing] Analysis result: confidence=\(analysis.confidence.rawValue) observation=\(analysis.observation)")
-                    if analysis.confidence != .low {
-                        DispatchQueue.main.async {
-                            self.onAnalysisResult?(analysis)
-                        }
-                    }
-                } else {
-                    print("[BehaviorSensing] Failed to parse response: \(String(fullResponse.prefix(200)))")
-                }
-            } catch {
-                print("[BehaviorSensing] Analysis failed: \(error.localizedDescription)")
-            }
-        }
+        // Behavior analysis requires an AI backend — currently disabled.
+        // To re-enable, integrate with the Anthropic Messages API directly.
+        isAnalyzing = false
+        lastAnalysisTime = Date()
     }
 
     private func compressEvents(_ events: [BehaviorEvent], maxCount: Int) -> [BehaviorEvent] {

@@ -2,13 +2,10 @@ import Cocoa
 import ApplicationServices
 
 /// Monitors verification code sources:
-/// - Primary: OpenClaw API (reads email via IMAP/himalaya)
+/// - Primary: himalaya CLI (reads email via IMAP directly)
 /// - Secondary: Notification Center (catches SMS/notification banners)
 final class CodeSourceMonitor {
     var onCodeFound: ((String) -> Void)?
-
-    /// Inject the shared OpenClawService instance. Set this before calling start().
-    var openClawService: OpenClawService?
 
     private var notificationObserver: AXObserver?
     private var isActive = false
@@ -30,8 +27,8 @@ final class CodeSourceMonitor {
         // Start notification center monitoring (event-driven, zero cost)
         startNotificationMonitor()
 
-        // Start OpenClaw retry sequence
-        startOpenClawRetries()
+        // Start himalaya retry sequence
+        startHimalayaRetries()
     }
 
     func stop() {
@@ -58,9 +55,9 @@ final class CodeSourceMonitor {
         }
     }
 
-    // MARK: - OpenClaw API (primary source)
+    // MARK: - Himalaya CLI (primary source)
 
-    private func startOpenClawRetries() {
+    private func startHimalayaRetries() {
         retryTask = Task { [weak self] in
             guard let self else { return }
 
@@ -71,106 +68,143 @@ final class CodeSourceMonitor {
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 guard self.isActive, !Task.isCancelled else { return }
 
-                debugLog("[CodeSource] OpenClaw attempt \(index + 1)/\(self.retryDelays.count)")
+                debugLog("[CodeSource] Himalaya attempt \(index + 1)/\(self.retryDelays.count)")
 
-                let code = await self.fetchCodeFromOpenClaw()
+                let code = await self.fetchCodeFromHimalaya()
                 if let code {
                     await MainActor.run {
-                        self.deliverCode(code, source: "OpenClaw")
+                        self.deliverCode(code, source: "Himalaya")
                     }
                     return // Success — stop retrying
                 }
 
-                debugLog("[CodeSource] OpenClaw attempt \(index + 1) — no code found")
+                debugLog("[CodeSource] Himalaya attempt \(index + 1) — no code found")
             }
 
-            debugLog("[CodeSource] OpenClaw — all \(self.retryDelays.count) attempts exhausted")
+            debugLog("[CodeSource] Himalaya — all \(self.retryDelays.count) attempts exhausted")
         }
     }
 
-    /// Single attempt to fetch a verification code from OpenClaw.
-    private func fetchCodeFromOpenClaw() async -> String? {
-        guard let service = openClawService else {
-            debugLog("[CodeSource] OpenClaw service not configured")
+    /// Single attempt to fetch a verification code by calling himalaya CLI directly.
+    private func fetchCodeFromHimalaya() async -> String? {
+        // Check if himalaya is available
+        guard let himalayaPath = findHimalaya() else {
+            debugLog("[CodeSource] himalaya CLI not found")
             return nil
         }
 
-        let prompt = """
-        [AUTO-VERIFY] Read the most recent emails (last 5 minutes) and extract any verification/OTP code.
+        // Step 1: List recent envelopes
+        guard let envelopeOutput = runShell(himalayaPath, arguments: ["envelope", "list", "--max-width", "500", "--page-size", "5"]) else {
+            debugLog("[CodeSource] Failed to list envelopes")
+            return nil
+        }
 
-        Instructions:
-        1. Run: himalaya envelope list --max-width 0 --page-size 5
-        2. For each email received within the last 5 minutes, run: himalaya message read <ID> --header From --header Subject
-        3. Look for 4-8 digit verification codes in the email body
-        4. Return the MOST RECENT code found
+        debugLog("[CodeSource] Envelope list: \(envelopeOutput.prefix(500))")
 
-        Response format (STRICT JSON, nothing else):
-        {"code":"123456","from":"noreply@example.com","subject":"Your verification code","age_seconds":30}
+        // Step 2: Parse envelope IDs from the output
+        let ids = parseEnvelopeIds(envelopeOutput)
+        guard !ids.isEmpty else {
+            debugLog("[CodeSource] No envelope IDs found")
+            return nil
+        }
 
-        If no verification code found:
-        {"code":null,"reason":"no recent verification email found"}
-        """
+        // Step 3: Read each message and try to extract a code
+        for id in ids {
+            guard let body = runShell(himalayaPath, arguments: ["message", "read", id]) else {
+                continue
+            }
 
-        // Collect the full response from SSE stream
-        var fullText = ""
+            debugLog("[CodeSource] Message \(id) body: \(body.prefix(300))")
+
+            if let code = extractCode(from: body) {
+                debugLog("[CodeSource] Found code \(code) in message \(id)")
+                return code
+            }
+        }
+
+        return nil
+    }
+
+    /// Locate the himalaya binary.
+    private func findHimalaya() -> String? {
+        let candidates = [
+            "/opt/homebrew/bin/himalaya",
+            "/usr/local/bin/himalaya",
+            NSString(string: "~/.local/bin/himalaya").expandingTildeInPath
+        ]
+        for path in candidates {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return path
+            }
+        }
+        // Try `which`
+        if let whichOutput = runShell("/usr/bin/which", arguments: ["himalaya"]),
+           !whichOutput.isEmpty {
+            let path = whichOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return path
+            }
+        }
+        return nil
+    }
+
+    /// Run a shell command and return stdout, or nil on failure.
+    private func runShell(_ executable: String, arguments: [String]) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+
         do {
-            for try await event in service.executeCommand(prompt: prompt) {
-                switch event {
-                case .delta(let text):
-                    fullText += text
-                case .error(let msg):
-                    debugLog("[CodeSource] OpenClaw error: \(msg)")
-                    return nil
-                default:
-                    break
+            try process.run()
+            process.waitUntilExit()
+
+            guard process.terminationStatus == 0 else { return nil }
+
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            return String(data: data, encoding: .utf8)
+        } catch {
+            debugLog("[CodeSource] Shell error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Parse envelope IDs from himalaya envelope list output.
+    /// Himalaya v1.x outputs a pipe-delimited table:
+    ///   | 21142 | * | Your Typeless verification code | Typeless Team | 2026-03-13 ... |
+    private func parseEnvelopeIds(_ output: String) -> [String] {
+        var ids: [String] = []
+        let lines = output.components(separatedBy: "\n")
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+
+            // Split by both ASCII pipe "|" and Unicode box-drawing "│"
+            let columns = trimmed.components(separatedBy: "|")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+
+            // Also try Unicode pipe
+            let columnsUnicode = trimmed.components(separatedBy: "│")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+
+            let candidates = columns.count > columnsUnicode.count ? columns : columnsUnicode
+
+            // First column should be the ID (numeric)
+            if let firstCol = candidates.first {
+                let idCandidate = firstCol.trimmingCharacters(in: .whitespaces)
+                if !idCandidate.isEmpty && idCandidate.allSatisfy({ $0.isNumber }) {
+                    ids.append(idCandidate)
                 }
             }
-        } catch {
-            debugLog("[CodeSource] OpenClaw request failed: \(error.localizedDescription)")
-            return nil
         }
 
-        debugLog("[CodeSource] OpenClaw response: \(fullText.prefix(500))")
-
-        // Parse the response
-        let parsed = parseOTPResponse(fullText)
-        if let reason = parsed.reason, parsed.code == nil {
-            debugLog("[CodeSource] OpenClaw no code: \(reason)")
-        }
-        return parsed.code
-    }
-
-    // MARK: - Response parsing
-
-    private struct OTPResponse {
-        let code: String?
-        let from: String?
-        let subject: String?
-        let reason: String?
-    }
-
-    private func parseOTPResponse(_ text: String) -> OTPResponse {
-        // Step 1: Try to extract JSON from the response
-        let jsonPattern = "\\{[^{}]*\"code\"[^{}]*\\}"
-        if let jsonRange = text.range(of: jsonPattern, options: .regularExpression),
-           let data = String(text[jsonRange]).data(using: .utf8),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-
-            let code = json["code"] as? String  // nil if JSON null
-            return OTPResponse(
-                code: code,
-                from: json["from"] as? String,
-                subject: json["subject"] as? String,
-                reason: json["reason"] as? String
-            )
-        }
-
-        // Step 2: Fallback — regex extract any 4-8 digit code
-        if let code = extractCode(from: text) {
-            return OTPResponse(code: code, from: nil, subject: nil, reason: nil)
-        }
-
-        return OTPResponse(code: nil, from: nil, subject: nil, reason: "parse_error")
+        return ids
     }
 
     // MARK: - Notification Center (secondary source)
@@ -246,7 +280,7 @@ final class CodeSourceMonitor {
         return texts
     }
 
-    // MARK: - Code extraction (regex engine — fallback for raw text parsing)
+    // MARK: - Code extraction (regex engine)
 
     func extractCode(from text: String) -> String? {
         // First try: code near a keyword (higher confidence)

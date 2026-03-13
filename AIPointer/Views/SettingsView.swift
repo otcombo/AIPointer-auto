@@ -3,8 +3,9 @@ import AppKit
 
 struct SettingsView: View {
     @ObservedObject var viewModel: PointerViewModel
-    @AppStorage("backendURL") private var backendURL = "http://localhost:18789"
-    @AppStorage("agentId") private var agentId = "main"
+    @AppStorage("anthropicAPIKey") private var anthropicAPIKey = ""
+    @AppStorage("anthropicModel") private var anthropicModel = "anthropic/claude-sonnet-4-5"
+    @AppStorage("anthropicBaseURL") private var anthropicBaseURL = ""
     @AppStorage("responseLanguage") private var responseLanguage = defaultResponseLanguage
     @AppStorage("behaviorSensingEnabled") private var behaviorSensingEnabled = false
     @AppStorage("behaviorSensitivity") private var behaviorSensitivity = 1.0
@@ -19,57 +20,31 @@ struct SettingsView: View {
     @AppStorage("suggestionDisplaySeconds") private var suggestionDisplaySeconds = 10.0
     @AppStorage("debugMaterial") private var debugMaterial: Int = 13 // .hudWindow
     @State private var debugCycling = false
-    @State private var connectionStatus: String?
-    @State private var connectionOk: Bool = false
 
     var body: some View {
         Form {
-            Section("OpenClaw") {
-                TextField("Server URL", text: $backendURL,
-                          prompt: Text("e.g. http://localhost:18789"))
+            Section("AI") {
+                SecureField("Anthropic API Key", text: $anthropicAPIKey,
+                            prompt: Text("sk-ant-..."))
                     .textFieldStyle(.roundedBorder)
-                TextField("Agent ID", text: $agentId,
-                          prompt: Text("e.g. main"))
+
+                TextField("Model", text: $anthropicModel,
+                          prompt: Text("anthropic/claude-sonnet-4-5"))
                     .textFieldStyle(.roundedBorder)
-                Text("The agent to chat with. Used in model name and session key.")
+
+                TextField("Base URL (optional)", text: $anthropicBaseURL,
+                          prompt: Text("https://api.anthropic.com"))
+                    .textFieldStyle(.roundedBorder)
+                Text("Leave blank for default endpoint.")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                
+
                 Picker("Response Language", selection: $responseLanguage) {
                     Text("中文").tag("zh-CN")
                     Text("English").tag("en")
                 }
                 .pickerStyle(.segmented)
-                Text("Language for AI responses and behavior sensing suggestions.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                // 连接测试 & 终端配置
-                HStack {
-                    Button("测试连接") {
-                        testConnection()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-
-                    Button("打开终端配置") {
-                        openTerminalForAdvancedConfig()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-
-                    if let status = connectionStatus {
-                        HStack(spacing: 4) {
-                            Circle()
-                                .fill(connectionOk ? Color.green : Color.red)
-                                .frame(width: 8, height: 8)
-                            Text(status)
-                                .font(.caption)
-                                .foregroundColor(connectionOk ? .green : .red)
-                        }
-                    }
-                }
-                Text("在终端中配置 API Key、模型等高级选项")
+                Text("Language for AI responses.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -156,7 +131,7 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
 
                         Toggle("Show offer", isOn: $focusShowOffer)
-                        Text("What AI can help with, including skill recommendations")
+                        Text("What AI can help with")
                             .font(.caption)
                             .foregroundColor(.secondary)
 
@@ -235,52 +210,6 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 380, height: 640)
-    }
-
-    // MARK: - 终端配置
-
-    private func openTerminalForAdvancedConfig() {
-        let script = """
-        tell application "Terminal"
-            activate
-            do script "echo '=== OpenClaw 高级配置 ===' && echo '' && echo '查看当前状态:' && openclaw status 2>/dev/null || echo 'openclaw 未找到' && echo '' && echo '编辑配置: openclaw config edit' && echo '查看帮助: openclaw --help'"
-        end tell
-        """
-        if let appleScript = NSAppleScript(source: script) {
-            var error: NSDictionary?
-            appleScript.executeAndReturnError(&error)
-        }
-    }
-
-    // MARK: - 连接测试
-
-    private func testConnection() {
-        connectionStatus = "测试中..."
-        connectionOk = false
-
-        let urlString = backendURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: "\(urlString)/api/health") else {
-            connectionStatus = "无效的 URL"
-            return
-        }
-
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 5
-
-        Task {
-            do {
-                let (_, response) = try await URLSession.shared.data(for: request)
-                if let httpResponse = response as? HTTPURLResponse,
-                   (200...299).contains(httpResponse.statusCode) {
-                    connectionStatus = "连接成功"
-                    connectionOk = true
-                } else {
-                    connectionStatus = "服务器返回错误"
-                }
-            } catch {
-                connectionStatus = "无法连接"
-            }
-        }
     }
 }
 

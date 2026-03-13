@@ -48,7 +48,6 @@ class PointerViewModel: ObservableObject {
 
     func configureAPI(baseURL: String) {
         apiService.configure(baseURL: baseURL)
-        installedSkills = InstalledSkillsProvider.load()
     }
 
     // MARK: - Skill Completion
