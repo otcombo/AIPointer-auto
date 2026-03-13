@@ -8,7 +8,7 @@ class OpenClawSetupService: ObservableObject {
     // MARK: - 状态枚举
 
     enum SetupPhase: Int, CaseIterable, Comparable {
-        case install = 0, gateway = 1, apiKey = 2, verify = 3
+        case install = 0, gateway = 1, apiKey = 2
 
         static func < (lhs: SetupPhase, rhs: SetupPhase) -> Bool {
             lhs.rawValue < rhs.rawValue
@@ -30,7 +30,6 @@ class OpenClawSetupService: ObservableObject {
         .install: .pending,
         .gateway: .pending,
         .apiKey: .pending,
-        .verify: .pending,
     ]
     @Published var resolvedPort: Int = 18789
 
@@ -91,13 +90,6 @@ class OpenClawSetupService: ObservableObject {
 
             if startPhase <= .apiKey {
                 await runAPIKeyPhase()
-                if Task.isCancelled { return }
-                // apiKey phase may pause at .needsInput — verify phase runs after user submits
-                guard case .succeeded = phaseStatuses[.apiKey] else { return }
-            }
-
-            if startPhase <= .verify {
-                await runVerifyPhase()
             }
         }
     }
@@ -223,6 +215,9 @@ class OpenClawSetupService: ObservableObject {
             return
         }
 
+        // Ensure gateway.mode=local is set (required by openclaw to start without interactive prompt)
+        let _ = await runShell("\(path) config set gateway.mode local")
+
         let cmd = "\(path) gateway start --port \(port)"
         log("Phase[gateway] launching: \(cmd)")
         runShellBackground(cmd)
@@ -286,6 +281,20 @@ class OpenClawSetupService: ObservableObject {
         phaseStatuses[.apiKey] = .needsInput
     }
 
+    private func providerBaseURL(_ provider: String) -> String {
+        switch provider {
+        case "anthropic":   return "https://api.anthropic.com"
+        case "openai":      return "https://api.openai.com"
+        case "openrouter":  return "https://openrouter.ai/api"
+        case "google":      return "https://generativelanguage.googleapis.com"
+        case "groq":        return "https://api.groq.com/openai"
+        case "mistral":     return "https://api.mistral.ai"
+        case "xai":         return "https://api.x.ai"
+        case "cerebras":    return "https://api.cerebras.ai"
+        default:            return "https://api.\(provider).com"
+        }
+    }
+
     /// 用户提交 API Key 后调用
     func continueAfterAPIKey(provider: String, apiKey: String) {
         log("continueAfterAPIKey: provider=\(provider), keyLength=\(apiKey.count)")
@@ -299,6 +308,10 @@ class OpenClawSetupService: ObservableObject {
                 phaseStatuses[.apiKey] = .failed(L("找不到 openclaw 路径", "openclaw path not found"))
                 return
             }
+
+            // Set baseUrl first (required by openclaw config validation)
+            let baseURL = providerBaseURL(provider)
+            let _ = await runShell("\(path) config set models.providers.\(provider).baseUrl '\(baseURL)'")
 
             // Escape single quotes in the API key
             let escapedKey = apiKey.replacingOccurrences(of: "'", with: "'\\''")
@@ -317,39 +330,22 @@ class OpenClawSetupService: ObservableObject {
                let savedKey = providerConfig["apiKey"] as? String,
                !savedKey.isEmpty {
                 phaseStatuses[.apiKey] = .succeeded(L("已配置", "Configured"))
-                await runVerifyPhase()
                 return
             }
 
             // If config read fails but shell didn't error, still mark as succeeded
             if result != nil {
                 phaseStatuses[.apiKey] = .succeeded(L("已配置", "Configured"))
-                await runVerifyPhase()
             } else {
                 phaseStatuses[.apiKey] = .failed(L("保存失败", "Save failed"))
             }
         }
     }
 
-    // MARK: - Phase 4: Verify
-
-    private func runVerifyPhase() async {
-        log("Phase[verify] starting, port=\(resolvedPort)")
-        phaseStatuses[.verify] = .inProgress(L("验证中...", "Verifying..."))
-
-        if await healthCheck(port: resolvedPort) {
-            log("Phase[verify] succeeded")
-            phaseStatuses[.verify] = .succeeded(L("一切就绪", "All set"))
-        } else {
-            log("Phase[verify] FAILED: health check failed on port \(resolvedPort)")
-            phaseStatuses[.verify] = .failed(L("Gateway 无响应", "Gateway not responding"))
-        }
-    }
-
     // MARK: - Health Check
 
     private func healthCheck(port: Int) async -> Bool {
-        guard let url = URL(string: "http://localhost:\(port)/api/health") else { return false }
+        guard let url = URL(string: "http://localhost:\(port)/health") else { return false }
         var request = URLRequest(url: url)
         request.timeoutInterval = 3
 

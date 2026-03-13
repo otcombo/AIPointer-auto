@@ -318,14 +318,6 @@ struct OnboardingView: View {
                     phaseRow(.apiKey,
                              icon: "key.fill",
                              title: L("配置 API Key", "Configure API Key"))
-                    phaseRow(.verify,
-                             icon: "checkmark.shield.fill",
-                             title: L("验证连接", "Verify Connection"))
-                }
-
-                // API Key input section
-                if openClawSetup.phaseStatuses[.apiKey] == .needsInput {
-                    apiKeyInputSection
                 }
 
                 // Patience message for long install
@@ -359,48 +351,60 @@ struct OnboardingView: View {
         }
     }
 
+    @ViewBuilder
     private func phaseRow(_ phase: OpenClawSetupService.SetupPhase, icon: String, title: String) -> some View {
         let status = openClawSetup.phaseStatuses[phase] ?? .pending
 
-        return HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 20))
-                .frame(width: 32, height: 32)
-                .foregroundColor(.black)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 14, weight: .medium))
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 20))
+                    .frame(width: 32, height: 32)
                     .foregroundColor(.black)
 
-                if let subtitle = phaseSubtitle(status) {
-                    Text(subtitle)
-                        .font(.system(size: 11))
-                        .foregroundColor(.black.opacity(0.4))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.black)
+
+                    if let subtitle = phaseSubtitle(status) {
+                        Text(subtitle)
+                            .font(.system(size: 11))
+                            .foregroundColor(.black.opacity(0.4))
+                    }
+                }
+
+                Spacer()
+
+                if case .failed = status {
+                    Button(action: { retryPhase(phase) }) {
+                        Text(L("重试", "Retry"))
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 5)
+                            .background(Color.black)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    phaseStatusIcon(status)
                 }
             }
+            .padding(.leading, 10)
+            .padding(.trailing, 14)
+            .padding(.vertical, 13)
+            .frame(minHeight: 58)
 
-            Spacer()
-
-            if case .failed = status {
-                Button(action: { retryPhase(phase) }) {
-                    Text(L("重试", "Retry"))
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 5)
-                        .background(Color.black)
-                        .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-            } else {
-                phaseStatusIcon(status)
+            if phase == .apiKey && status == .needsInput {
+                Rectangle()
+                    .fill(Color.orange.opacity(0.15))
+                    .frame(height: 1)
+                    .padding(.horizontal, 10)
+                apiKeyInputSection
+                    .padding(12)
             }
         }
-        .padding(.leading, 10)
-        .padding(.trailing, 14)
-        .padding(.vertical, 13)
-        .frame(height: 58)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(phaseRowBackground(status))
@@ -471,35 +475,34 @@ struct OnboardingView: View {
     // MARK: - API Key Input Section
 
     private var apiKeyInputSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .trailing, spacing: 12) {
             // Provider selector
-            VStack(alignment: .leading, spacing: 4) {
+            HStack {
                 Text(L("LLM 提供商", "LLM Provider"))
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(.black)
+
+                Spacer()
 
                 Menu {
                     Button("Anthropic") { selectedProvider = "anthropic" }
                     Button("OpenAI") { selectedProvider = "openai" }
                     Button("OpenRouter") { selectedProvider = "openrouter" }
-                    Menu(L("更多...", "More...")) {
-                        Button("Google") { selectedProvider = "google" }
-                        Button("Groq") { selectedProvider = "groq" }
-                        Button("Mistral") { selectedProvider = "mistral" }
-                        Button("xAI") { selectedProvider = "xai" }
-                        Button("Cerebras") { selectedProvider = "cerebras" }
-                    }
+                    Button("Google") { selectedProvider = "google" }
+                    Button("Groq") { selectedProvider = "groq" }
+                    Button("Mistral") { selectedProvider = "mistral" }
+                    Button("xAI") { selectedProvider = "xai" }
+                    Button("Cerebras") { selectedProvider = "cerebras" }
                 } label: {
-                    HStack {
+                    HStack(spacing: 6) {
                         Text(providerDisplayName(selectedProvider))
                             .font(.system(size: 13))
                             .foregroundColor(.black)
-                        Spacer()
                         Image(systemName: "chevron.up.chevron.down")
-                            .font(.system(size: 10))
+                            .font(.system(size: 10, weight: .medium))
                             .foregroundColor(.black.opacity(0.4))
                     }
-                    .padding(.horizontal, 10)
+                    .padding(.horizontal, 12)
                     .padding(.vertical, 7)
                     .background(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -507,45 +510,38 @@ struct OnboardingView: View {
                     )
                 }
                 .menuStyle(.borderlessButton)
+                .fixedSize()
             }
 
             // API Key input
-            VStack(alignment: .leading, spacing: 4) {
+            HStack {
                 Text("API Key")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(.black)
 
-                HStack(spacing: 8) {
-                    SecureField("sk-...", text: $apiKeyInput)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 13))
+                Spacer()
 
-                    Button(action: {
-                        guard !apiKeyInput.isEmpty else { return }
-                        openClawSetup.continueAfterAPIKey(provider: selectedProvider, apiKey: apiKeyInput)
-                    }) {
-                        Text(L("保存", "Save"))
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 7)
-                            .background(apiKeyInput.isEmpty ? Color.black.opacity(0.3) : Color.black)
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(apiKeyInput.isEmpty)
-                }
+                SecureField("sk-...", text: $apiKeyInput)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 13))
             }
+
+            // Save button
+            Button(action: {
+                guard !apiKeyInput.isEmpty else { return }
+                openClawSetup.continueAfterAPIKey(provider: selectedProvider, apiKey: apiKeyInput)
+            }) {
+                Text(L("保存", "Save"))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 7)
+                    .background(apiKeyInput.isEmpty ? Color.black.opacity(0.3) : Color.black)
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(apiKeyInput.isEmpty)
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.orange.opacity(0.05))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.orange.opacity(0.2), lineWidth: 1)
-                )
-        )
     }
 
     // MARK: - Himalaya Section
@@ -557,7 +553,7 @@ struct OnboardingView: View {
                 Rectangle()
                     .fill(Color.black.opacity(0.08))
                     .frame(height: 1)
-                Text(L("邮件验证（可选）", "Email Verification (Optional)"))
+                Text(L("邮件验证码自动填充（可选）", "Auto-fill Email OTP (Optional)"))
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.black.opacity(0.35))
                     .fixedSize()
@@ -567,24 +563,12 @@ struct OnboardingView: View {
             }
             .padding(.top, 4)
 
-            VStack(spacing: 6) {
-                himalayaPhaseRow(.install,
-                                 icon: "terminal.fill",
-                                 title: L("安装 Himalaya", "Install Himalaya"))
-                himalayaPhaseRow(.email,
-                                 icon: "envelope.fill",
-                                 title: L("配置邮箱", "Configure Email"))
-            }
-
-            // Email input section
-            if himalayaSetup.phaseStatuses[.email] == .needsInput {
-                himalayaEmailInputSection
-            }
+            himalayaMailRow
 
             // Skip button
             if !himalayaSetup.isFinished {
                 Button(action: { himalayaSetup.skip() }) {
-                    Text(L("跳过邮件验证", "Skip email verification"))
+                    Text(L("跳过", "Skip"))
                         .font(.system(size: 12))
                         .foregroundColor(.black.opacity(0.35))
                         .underline()
@@ -594,51 +578,92 @@ struct OnboardingView: View {
         }
     }
 
-    private func himalayaPhaseRow(_ phase: HimalayaSetupService.SetupPhase, icon: String, title: String) -> some View {
-        let status = himalayaSetup.phaseStatuses[phase] ?? .pending
+    /// Combined himalaya row: install + email config in one card
+    private var himalayaMailRow: some View {
+        let installStatus = himalayaSetup.phaseStatuses[.install] ?? .pending
+        let emailStatus = himalayaSetup.phaseStatuses[.email] ?? .pending
 
-        return HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 20))
-                .frame(width: 32, height: 32)
-                .foregroundColor(.black)
+        // Derive combined status for background/icon
+        let combinedStatus: HimalayaSetupService.PhaseStatus = {
+            if case .failed = installStatus { return installStatus }
+            if case .failed = emailStatus { return emailStatus }
+            if case .succeeded = emailStatus { return emailStatus }
+            if emailStatus == .needsInput { return emailStatus }
+            if case .inProgress = emailStatus { return emailStatus }
+            if case .inProgress = installStatus { return installStatus }
+            if case .succeeded = installStatus { return installStatus }
+            if case .skipped = installStatus { return installStatus }
+            return .pending
+        }()
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 14, weight: .medium))
+        // Derive subtitle
+        let subtitle: String? = {
+            if case .failed(let text) = installStatus { return text }
+            if case .failed(let text) = emailStatus { return text }
+            if let sub = himalayaPhaseSubtitle(emailStatus) { return sub }
+            if let sub = himalayaPhaseSubtitle(installStatus) { return sub }
+            return L("从邮箱读取验证码并自动填入", "Reads OTP codes from email and auto-fills them")
+        }()
+
+        // Which phase to retry
+        let retryPhase: HimalayaSetupService.SetupPhase = {
+            if case .failed = installStatus { return .install }
+            return .email
+        }()
+
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "envelope.fill")
+                    .font(.system(size: 20))
+                    .frame(width: 32, height: 32)
                     .foregroundColor(.black)
 
-                if let subtitle = himalayaPhaseSubtitle(status) {
-                    Text(subtitle)
-                        .font(.system(size: 11))
-                        .foregroundColor(.black.opacity(0.4))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L("配置邮箱", "Configure Mail"))
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.black)
+
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.system(size: 11))
+                            .foregroundColor(.black.opacity(0.4))
+                    }
+                }
+
+                Spacer()
+
+                if case .failed = combinedStatus {
+                    Button(action: { himalayaSetup.retrySetup(from: retryPhase) }) {
+                        Text(L("重试", "Retry"))
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 5)
+                            .background(Color.black)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    himalayaPhaseStatusIcon(combinedStatus)
                 }
             }
+            .padding(.leading, 10)
+            .padding(.trailing, 14)
+            .padding(.vertical, 13)
+            .frame(minHeight: 58)
 
-            Spacer()
-
-            if case .failed = status {
-                Button(action: { himalayaSetup.retrySetup(from: phase) }) {
-                    Text(L("重试", "Retry"))
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 5)
-                        .background(Color.black)
-                        .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-            } else {
-                himalayaPhaseStatusIcon(status)
+            if emailStatus == .needsInput {
+                Rectangle()
+                    .fill(Color.orange.opacity(0.15))
+                    .frame(height: 1)
+                    .padding(.horizontal, 10)
+                himalayaEmailInputSection
+                    .padding(12)
             }
         }
-        .padding(.leading, 10)
-        .padding(.trailing, 14)
-        .padding(.vertical, 13)
-        .frame(height: 58)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(himalayaPhaseRowBackground(status))
+                .fill(himalayaPhaseRowBackground(combinedStatus))
         )
     }
 
@@ -691,12 +716,14 @@ struct OnboardingView: View {
     }
 
     private var himalayaEmailInputSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .trailing, spacing: 12) {
             // Email input
-            VStack(alignment: .leading, spacing: 4) {
+            HStack {
                 Text(L("邮箱地址", "Email Address"))
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(.black)
+
+                Spacer()
 
                 TextField("user@example.com", text: $himalayaEmailInput)
                     .textFieldStyle(.roundedBorder)
@@ -704,34 +731,16 @@ struct OnboardingView: View {
             }
 
             // App Password input
-            VStack(alignment: .leading, spacing: 4) {
+            HStack {
                 Text("App Password")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(.black)
 
-                HStack(spacing: 8) {
-                    SecureField(L("应用专用密码", "App-specific password"), text: $himalayaPasswordInput)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 13))
+                Spacer()
 
-                    Button(action: {
-                        guard !himalayaEmailInput.isEmpty && !himalayaPasswordInput.isEmpty else { return }
-                        himalayaSetup.continueAfterEmail(email: himalayaEmailInput, appPassword: himalayaPasswordInput)
-                    }) {
-                        Text(L("保存", "Save"))
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 7)
-                            .background(
-                                (himalayaEmailInput.isEmpty || himalayaPasswordInput.isEmpty)
-                                ? Color.black.opacity(0.3) : Color.black
-                            )
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(himalayaEmailInput.isEmpty || himalayaPasswordInput.isEmpty)
-                }
+                SecureField(L("应用专用密码", "App-specific password"), text: $himalayaPasswordInput)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 13))
             }
 
             // Inline guidance + clickable link based on email domain
@@ -759,17 +768,28 @@ struct OnboardingView: View {
                         if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+
+            // Save button
+            Button(action: {
+                guard !himalayaEmailInput.isEmpty && !himalayaPasswordInput.isEmpty else { return }
+                himalayaSetup.continueAfterEmail(email: himalayaEmailInput, appPassword: himalayaPasswordInput)
+            }) {
+                Text(L("保存", "Save"))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 7)
+                    .background(
+                        (himalayaEmailInput.isEmpty || himalayaPasswordInput.isEmpty)
+                        ? Color.black.opacity(0.3) : Color.black
+                    )
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(himalayaEmailInput.isEmpty || himalayaPasswordInput.isEmpty)
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.orange.opacity(0.05))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.orange.opacity(0.2), lineWidth: 1)
-                )
-        )
     }
 
     private func providerDisplayName(_ provider: String) -> String {
