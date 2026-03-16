@@ -51,8 +51,19 @@ class PermissionChecker: ObservableObject {
     }
 
     /// 请求输入监控权限（触发系统弹窗）
+    /// macOS 26+ 需要实际尝试创建 event tap 才会在 Input Monitoring 列表中显示 app
     func requestInputMonitoring() {
         CGRequestListenEventAccess()
+        // Attempt to create an event tap so macOS registers this app in Input Monitoring list
+        let tap = CGEvent.tapCreate(
+            tap: .cghidEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: CGEventMask(1 << CGEventType.mouseMoved.rawValue),
+            callback: { _, _, event, _ in Unmanaged.passUnretained(event) },
+            userInfo: nil
+        )
+        if let tap { CFMachPortInvalidate(tap) }
     }
 
     /// 请求辅助功能权限（触发系统弹窗）

@@ -110,7 +110,7 @@ PLIST
 # Step 5: Code sign + strip quarantine for local testing
 echo "==> Code signing..."
 xattr -cr "${APP_BUNDLE}"
-codesign --force --deep --sign - \
+codesign --force --deep --sign "Apple Development: Han Li (5VF4G3NDGY)" \
     --entitlements "${DIST_DIR}/entitlements.plist" \
     "${APP_BUNDLE}"
 
