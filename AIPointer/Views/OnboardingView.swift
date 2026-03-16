@@ -239,6 +239,16 @@ struct OnboardingView: View {
                         }
                     }
                 )
+                permissionRow(
+                    icon: "folder",
+                    title: L("Finder 控制", "Finder Control"),
+                    subtitle: L("读取 Finder 中选中的文件", "Read selected files in Finder"),
+                    state: permissions.finderAutomation, required: false,
+                    action: {
+                        clickedPermissions.insert("finderAutomation")
+                        permissions.requestFinderAutomation()
+                    }
+                )
             }
 
             HStack(spacing: 4) {
@@ -826,9 +836,15 @@ struct OnboardingView: View {
                     }
                 }
 
+                // Finder automation: re-check if user clicked and not yet granted
+                if clickedPermissions.contains("finderAutomation") && permissions.finderAutomation != .granted {
+                    permissions.checkFinderAutomation()
+                }
+
                 // Remove granted permissions from clicked set
                 if permissions.inputMonitoring == .granted { clickedPermissions.remove("inputMonitoring") }
                 if permissions.accessibility == .granted { clickedPermissions.remove("accessibility") }
+                if permissions.finderAutomation == .granted { clickedPermissions.remove("finderAutomation") }
 
                 // Increment poll counter when user has clicked but permissions still denied
                 if !clickedPermissions.isEmpty && !permissions.allRequiredGranted {

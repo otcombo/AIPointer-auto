@@ -13,6 +13,7 @@ class PermissionChecker: ObservableObject {
     @Published var inputMonitoring: PermissionState = .unknown
     @Published var accessibility: PermissionState = .unknown
     @Published var screenRecording: PermissionState = .unknown
+    @Published var finderAutomation: PermissionState = .unknown
 
     /// 所有必要权限是否已授予（输入监控 + 辅助功能）
     var allRequiredGranted: Bool {
@@ -21,7 +22,7 @@ class PermissionChecker: ObservableObject {
 
     /// 所有权限（含可选）是否已授予
     var allGranted: Bool {
-        allRequiredGranted && screenRecording == .granted
+        allRequiredGranted && screenRecording == .granted && finderAutomation == .granted
     }
 
     /// 检查所有权限状态（含屏幕录制，会触发系统弹窗）
@@ -89,6 +90,63 @@ class PermissionChecker: ObservableObject {
     /// 打开屏幕录制设置页
     func openScreenRecordingSettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    // MARK: - Finder Automation (Apple Events)
+
+    /// 请求 Finder 自动化权限 — 执行最小 AppleScript 触发系统弹窗
+    /// macOS 没有预请求 API，只能通过实际发送 Apple Event 触发
+    func requestFinderAutomation() {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+            task.arguments = ["-e", "tell application \"Finder\" to get name of front window"]
+            task.standardOutput = Pipe()
+            task.standardError = Pipe()
+            do {
+                try task.run()
+                task.waitUntilExit()
+                let granted = task.terminationStatus == 0
+                DispatchQueue.main.async {
+                    self?.finderAutomation = granted ? .granted : .denied
+                    OnboardingLog.log("Permission", "finderAutomation: \(granted ? "granted" : "denied")")
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self?.finderAutomation = .denied
+                }
+            }
+        }
+    }
+
+    /// 检查 Finder 自动化权限（通过尝试执行最小命令）
+    func checkFinderAutomation() {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+            task.arguments = ["-e", "tell application \"Finder\" to get name of front window"]
+            task.standardOutput = Pipe()
+            task.standardError = Pipe()
+            do {
+                try task.run()
+                task.waitUntilExit()
+                let granted = task.terminationStatus == 0
+                DispatchQueue.main.async {
+                    self?.finderAutomation = granted ? .granted : .denied
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self?.finderAutomation = .denied
+                }
+            }
+        }
+    }
+
+    /// 打开自动化设置页
+    func openAutomationSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation") {
             NSWorkspace.shared.open(url)
         }
     }
