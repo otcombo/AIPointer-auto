@@ -36,6 +36,14 @@ mkdir -p "${APP_BUNDLE}/Contents/Resources"
 
 cp "${EXECUTABLE}" "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
 
+# Copy SPM resource bundle (contains videos, icons used by Bundle.module)
+# Place in Contents/Resources/ — Bundle.module is overridden in code to find it here.
+RESOURCE_BUNDLE="${BUILD_DIR}/AIPointer_AIPointer.bundle"
+if [ -d "${RESOURCE_BUNDLE}" ]; then
+    cp -R "${RESOURCE_BUNDLE}" "${APP_BUNDLE}/Contents/Resources/AIPointer_AIPointer.bundle"
+    echo "    Copied resource bundle"
+fi
+
 # Compile app icon via actool
 ACTOOL_OUT="${DIST_DIR}/actool-out"
 mkdir -p "${ACTOOL_OUT}"
@@ -110,7 +118,7 @@ PLIST
 # Step 5: Code sign + strip quarantine for local testing
 echo "==> Code signing..."
 xattr -cr "${APP_BUNDLE}"
-codesign --force --deep --sign "Apple Development: Han Li (5VF4G3NDGY)" \
+codesign --force --deep --sign "Developer ID Application: Han Li (GV33A558Z4)" \
     --entitlements "${DIST_DIR}/entitlements.plist" \
     "${APP_BUNDLE}"
 

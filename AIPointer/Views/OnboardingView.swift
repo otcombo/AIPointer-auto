@@ -43,8 +43,21 @@ struct OnboardingView: View {
         case .autoVerify:   name = "AIPointer-Feature-2"
         default:            return nil
         }
-        return Bundle.module.url(forResource: name, withExtension: "mp4")
+        return Self.resourceBundle.url(forResource: name, withExtension: "mp4")
     }
+
+    /// Finds the SPM resource bundle in both dev (Bundle.module) and .app bundle layouts.
+    /// In .app bundles, Bundle.main.resourceURL points to Contents/Resources/.
+    private static let resourceBundle: Bundle = {
+        let bundleName = "AIPointer_AIPointer"
+        // .app bundle: Contents/Resources/
+        if let resourceURL = Bundle.main.resourceURL,
+           let bundle = Bundle(url: resourceURL.appendingPathComponent(bundleName + ".bundle")) {
+            return bundle
+        }
+        // SPM development: Bundle.module (next to executable)
+        return Bundle.module
+    }()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -632,6 +645,20 @@ struct OnboardingView: View {
                 SecureField(L("应用专用密码", "App-specific password"), text: $himalayaPasswordInput)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 13))
+            }
+
+            // General guidance for App Password
+            if himalayaEmailInput.isEmpty {
+                Text(L("输入邮箱后会显示获取 App Password 的指引",
+                       "Enter your email to see instructions for getting an App Password"))
+                    .font(.system(size: 11))
+                    .foregroundColor(.black.opacity(0.4))
+            } else if HimalayaSetupService.appPasswordHelp(for: himalayaEmailInput) == nil {
+                Text(L("App Password 是邮箱服务商提供的专用密码，不是你的邮箱登录密码。请在邮箱设置中生成。",
+                       "An App Password is a special password from your email provider, not your login password. Generate one in your email settings."))
+                    .font(.system(size: 11))
+                    .foregroundColor(.black.opacity(0.4))
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             // Inline guidance + clickable link based on email domain

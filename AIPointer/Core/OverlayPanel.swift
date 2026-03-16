@@ -24,7 +24,7 @@ class OverlayPanel: NSPanel {
 
         self.level = .screenSaver
         self.ignoresMouseEvents = true
-        self.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+        self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         self.backgroundColor = .clear
         self.isOpaque = false
         self.hasShadow = false
