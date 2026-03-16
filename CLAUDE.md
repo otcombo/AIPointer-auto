@@ -47,6 +47,7 @@ When adding a new component: instantiate it in `AppDelegate`, wire its closures 
 | Service | `OpenClawService` | Anthropic Messages API SSE client (direct) |
 | Service | `VerificationService` | OTP detection → auto-fill pipeline |
 | Service | `BehaviorSensingService` | Behavior scoring (2s) + focus detection (30s) |
+| Service | `UpdateService` | Self-update via GitHub Releases (check, download, replace, relaunch) |
 | View | `PointerRootView` | Top-level `switch` on `PointerState` |
 
 ### Fn/Emoji four-layer defense
@@ -104,6 +105,32 @@ Use `Defaults.L.key` for user-facing strings. Inline localization via system lan
 - No third-party dependencies. Use system frameworks only.
 - Prefer `async/await` for new asynchronous code. The project uses Swift language mode v5 but targets Swift 6.2 toolchain.
 - Keep files focused: one primary type per file.
+
+## Release & Auto-Update
+
+App self-updates via GitHub Releases (`UpdateService`). On each launch (at most once per day), it checks `/repos/otcombo/AIPointer-auto/releases/latest` and prompts the user if a newer version exists. Users can also trigger a check from the menu bar ("Check for Updates…").
+
+### Publishing a new version
+
+1. Bump `CFBundleShortVersionString` in `dist/AIPointer.app/Contents/Info.plist`
+2. Build release binary:
+   ```bash
+   swift build -c release
+   ```
+3. Copy binary into the .app bundle:
+   ```bash
+   cp .build/release/AIPointer dist/AIPointer.app/Contents/MacOS/AIPointer
+   ```
+4. Package as zip (preserves code signature and resource forks):
+   ```bash
+   cd dist && ditto -ck --keepParent AIPointer.app AIPointer.zip
+   ```
+5. Create GitHub Release with semver tag (`v` prefix required):
+   ```bash
+   gh release create v1.x.x dist/AIPointer.zip --title "v1.x.x" --notes "Changelog here"
+   ```
+
+The zip **must** be named `AIPointer.zip` — `UpdateService` looks for this exact asset name. Tag format: `v1.0.0`, `v1.1.0`, etc.
 
 ## Modification Guide
 

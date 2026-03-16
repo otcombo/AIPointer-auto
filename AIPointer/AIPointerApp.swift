@@ -23,6 +23,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var viewModel: PointerViewModel!
     private var verificationService: VerificationService!
     private var behaviorSensingService: BehaviorSensingService!
+    private var updateService: UpdateService!
     private var settingsWindow: NSWindow?
     private var isEnabled = true
     private var isFollowingMouse = true
@@ -48,6 +49,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self, selector: #selector(handleShowOnboarding),
             name: .showOnboarding, object: nil
         )
+
+        // Auto-update check (independent of permissions)
+        setupUpdateService()
+        updateService.checkIfNeeded()
 
         // 首次启动显示 onboarding，否则直接启动
         let onboardingCompleted = UserDefaults.standard.bool(forKey: "onboardingCompleted")
@@ -111,6 +116,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
+
+        let updateItem = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+        updateItem.target = self
+        menu.addItem(updateItem)
 
         menu.addItem(NSMenuItem.separator())
         let quitItem = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q")
@@ -380,6 +389,53 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         eventTapManager.start()
         cursorHider.hide()
         overlayPanel.orderFrontRegardless()
+
+    }
+
+    // MARK: - Update
+
+    private func setupUpdateService() {
+        updateService = UpdateService()
+        updateService.onStateChanged = { [weak self] state in
+            self?.handleUpdateState(state)
+        }
+    }
+
+    private func handleUpdateState(_ state: UpdateService.State) {
+        switch state {
+        case .available(let version, _):
+            // Mark the menu item to show update is available
+            if let menu = statusItem?.menu,
+               let item = menu.items.first(where: { $0.action == #selector(checkForUpdates) }) {
+                item.title = "Update Available: v\(version)"
+            }
+            // Show a subtle alert for manual checks
+            showUpdateAlert(version: version)
+
+        case .error(let msg):
+            print("[Update] Error: \(msg)")
+
+        default:
+            break
+        }
+    }
+
+    private func showUpdateAlert(version: String) {
+        let alert = NSAlert()
+        alert.messageText = "Update Available"
+        alert.informativeText = "AIPointer v\(version) is available. Would you like to update now?"
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Update")
+        alert.addButton(withTitle: "Later")
+
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            updateService.downloadAndInstall()
+        }
+    }
+
+    @objc private func checkForUpdates() {
+        updateService.check()
     }
 
     private func applySettings() {
