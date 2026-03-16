@@ -13,6 +13,7 @@ struct OnboardingView: View {
 
     // API Key input state
     @State private var apiKeyInput: String = ""
+    @State private var baseURLInput: String = ""
     @State private var apiKeySaved: Bool = false
 
     // Himalaya email input state
@@ -90,6 +91,7 @@ struct OnboardingView: View {
             log("view appeared, starting at step=\(currentStep)")
             // Load existing API key if any
             apiKeyInput = UserDefaults.standard.string(forKey: "anthropicAPIKey") ?? ""
+            baseURLInput = UserDefaults.standard.string(forKey: "anthropicBaseURL") ?? ""
             apiKeySaved = !apiKeyInput.isEmpty
             withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) {
                 isPresented = true
@@ -382,6 +384,18 @@ struct OnboardingView: View {
                             .font(.system(size: 13))
                     }
 
+                    HStack {
+                        Text("Base URL")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.black)
+
+                        Spacer()
+
+                        TextField("https://api.anthropic.com", text: $baseURLInput)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 13))
+                    }
+
                     Button(action: saveApiKey) {
                         Text(L("保存", "Save"))
                             .font(.system(size: 12, weight: .medium))
@@ -406,8 +420,9 @@ struct OnboardingView: View {
     private func saveApiKey() {
         guard !apiKeyInput.isEmpty else { return }
         UserDefaults.standard.set(apiKeyInput, forKey: "anthropicAPIKey")
+        UserDefaults.standard.set(baseURLInput, forKey: "anthropicBaseURL")
         apiKeySaved = true
-        log("API key saved")
+        log("API key saved, baseURL=\(baseURLInput.isEmpty ? "(default)" : baseURLInput)")
     }
 
     // MARK: - Himalaya Section

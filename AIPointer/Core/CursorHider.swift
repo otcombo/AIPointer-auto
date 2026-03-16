@@ -67,9 +67,11 @@ class CursorHider {
         hideTimer = nil
 
         // CGDisplayHideCursor/ShowCursor uses a counter.
-        // We must call ShowCursor the same number of times as HideCursor to balance it.
+        // Call ShowCursor one extra time to cover any race with the timer firing
+        // right before invalidation. An extra ShowCursor beyond zero is harmless
+        // (the counter won't go below zero).
         let display = CGMainDisplayID()
-        for _ in 0..<hideCount {
+        for _ in 0...hideCount {
             CGDisplayShowCursor(display)
         }
         hideCount = 0

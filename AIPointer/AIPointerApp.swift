@@ -168,6 +168,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.standardWindowButton(.closeButton)?.isHidden = true
         window.standardWindowButton(.miniaturizeButton)?.isHidden = true
         window.standardWindowButton(.zoomButton)?.isHidden = true
+        window.isMovableByWindowBackground = true
 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
