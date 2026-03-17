@@ -22,7 +22,6 @@ final class CodeSourceMonitor {
         guard !isActive else { return }
         isActive = true
         lastFoundCode = nil
-        debugLog("[CodeSource] Monitoring started")
 
         // Start notification center monitoring (event-driven, zero cost)
         startNotificationMonitor()
@@ -32,7 +31,6 @@ final class CodeSourceMonitor {
     }
 
     func stop() {
-        debugLog("[CodeSource] Monitoring stopped")
         isActive = false
         lastFoundCode = nil
         retryTask?.cancel()
@@ -44,12 +42,8 @@ final class CodeSourceMonitor {
 
     private func deliverCode(_ code: String, source: String) {
         guard isActive else { return }
-        if code == lastFoundCode {
-            debugLog("[CodeSource] Skipping duplicate code from \(source): \(code)")
-            return
-        }
+        if code == lastFoundCode { return }
         lastFoundCode = code
-        debugLog("[CodeSource] Delivering code from \(source): \(code)")
         DispatchQueue.main.async { [weak self] in
             self?.onCodeFound?(code)
         }
@@ -61,14 +55,12 @@ final class CodeSourceMonitor {
         retryTask = Task { [weak self] in
             guard let self else { return }
 
-            for (index, delay) in self.retryDelays.enumerated() {
+            for (_, delay) in self.retryDelays.enumerated() {
                 guard self.isActive, !Task.isCancelled else { return }
 
                 // Wait before attempt
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 guard self.isActive, !Task.isCancelled else { return }
-
-                debugLog("[CodeSource] Himalaya attempt \(index + 1)/\(self.retryDelays.count)")
 
                 let code = await self.fetchCodeFromHimalaya()
                 if let code {
@@ -77,11 +69,7 @@ final class CodeSourceMonitor {
                     }
                     return // Success — stop retrying
                 }
-
-                debugLog("[CodeSource] Himalaya attempt \(index + 1) — no code found")
             }
-
-            debugLog("[CodeSource] Himalaya — all \(self.retryDelays.count) attempts exhausted")
         }
     }
 
@@ -89,22 +77,17 @@ final class CodeSourceMonitor {
     private func fetchCodeFromHimalaya() async -> String? {
         // Check if himalaya is available
         guard let himalayaPath = findHimalaya() else {
-            debugLog("[CodeSource] himalaya CLI not found")
             return nil
         }
 
         // Step 1: List recent envelopes
         guard let envelopeOutput = runShell(himalayaPath, arguments: ["envelope", "list", "--max-width", "500", "--page-size", "5"]) else {
-            debugLog("[CodeSource] Failed to list envelopes")
             return nil
         }
-
-        debugLog("[CodeSource] Envelope list: \(envelopeOutput.prefix(500))")
 
         // Step 2: Parse envelope IDs from the output
         let ids = parseEnvelopeIds(envelopeOutput)
         guard !ids.isEmpty else {
-            debugLog("[CodeSource] No envelope IDs found")
             return nil
         }
 
@@ -114,10 +97,7 @@ final class CodeSourceMonitor {
                 continue
             }
 
-            debugLog("[CodeSource] Message \(id) body: \(body.prefix(300))")
-
             if let code = extractCode(from: body) {
-                debugLog("[CodeSource] Found code \(code) in message \(id)")
                 return code
             }
         }
@@ -167,7 +147,6 @@ final class CodeSourceMonitor {
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             return String(data: data, encoding: .utf8)
         } catch {
-            debugLog("[CodeSource] Shell error: \(error.localizedDescription)")
             return nil
         }
     }
@@ -213,7 +192,6 @@ final class CodeSourceMonitor {
         guard let ncApp = NSRunningApplication.runningApplications(
             withBundleIdentifier: "com.apple.notificationcenterui"
         ).first else {
-            debugLog("[CodeSource] Notification Center process not found")
             return
         }
 
@@ -229,7 +207,6 @@ final class CodeSourceMonitor {
         var observer: AXObserver?
         guard AXObserverCreate(pid, callback, &observer) == .success,
               let observer else {
-            debugLog("[CodeSource] Failed to create AX observer for Notification Center")
             return
         }
 
@@ -239,7 +216,6 @@ final class CodeSourceMonitor {
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
 
         notificationObserver = observer
-        debugLog("[CodeSource] Notification Center observer registered (pid=\(pid))")
     }
 
     private func stopNotificationMonitor() {
@@ -254,10 +230,8 @@ final class CodeSourceMonitor {
 
         let texts = extractTexts(from: element, depth: 3)
         let combined = texts.joined(separator: " ")
-        debugLog("[CodeSource] Notification event — extracted text: \(combined.prefix(200))")
 
         if let code = extractCode(from: combined) {
-            debugLog("[CodeSource] Notification extracted code: \(code)")
             DispatchQueue.main.async { [weak self] in
                 self?.deliverCode(code, source: "Notification")
             }

@@ -185,27 +185,6 @@ struct SettingsView: View {
                     NotificationCenter.default.post(name: .showOnboarding, object: nil)
                 }
 
-                Divider()
-
-                HStack {
-                    Button("Copy Log") {
-                        let log = OnboardingLog.readAll()
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(log.isEmpty ? "(empty)" : log, forType: .string)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-
-                    Button("Open Log") {
-                        NSWorkspace.shared.open(URL(fileURLWithPath: OnboardingLog.logPath))
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-                Text("Log: ~/aipointer_debug.log")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .textSelection(.enabled)
             }
         }
         .formStyle(.grouped)

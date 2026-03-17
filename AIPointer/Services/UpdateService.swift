@@ -227,8 +227,9 @@ final class UpdateService {
     // MARK: - Helpers
 
     private func log(_ msg: String) {
+        #if DEBUG
         print(msg)
-        OnboardingLog.log("Update", msg)
+        #endif
     }
 
     private var currentAppVersion: String? {

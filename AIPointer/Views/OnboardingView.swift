@@ -23,7 +23,11 @@ struct OnboardingView: View {
 
     var onComplete: () -> Void
 
-    private func log(_ msg: String) { OnboardingLog.log("Onboarding", msg) }
+    private func log(_ msg: String) {
+        #if DEBUG
+        print("[Onboarding] \(msg)")
+        #endif
+    }
 
     enum Step: Int, CaseIterable {
         case fnKey = 0

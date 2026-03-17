@@ -67,7 +67,6 @@ final class VerificationService {
 
     private func handleFocusChange(element: AXUIElement) {
         let confidence = OTPFieldDetector.detect(element: element)
-        debugLog("[Verify] handleFocusChange → confidence=\(confidence), isMonitoring=\(isMonitoring), pendingCode=\(pendingCode ?? "nil")")
 
         switch confidence {
         case .tier1, .tier2, .tier3:
@@ -144,8 +143,6 @@ final class VerificationService {
     private func handleCodeFound(_ code: String) {
         guard isMonitoring else { return }
 
-        debugLog("[Verify] handleCodeFound → code=\(code), focusedOnOTP=\(focusedOnOTP)")
-
         if focusedOnOTP {
             // User is on the OTP field — show and auto-fill
             onStateChanged?(.codeReady(code: code))
@@ -158,7 +155,6 @@ final class VerificationService {
         } else {
             // User is not on the OTP field — stash for later
             pendingCode = code
-            debugLog("[Verify] Code stashed as pendingCode (focus not on OTP field)")
         }
     }
 
@@ -247,7 +243,6 @@ final class VerificationService {
         pendingCodeTimer = Timer.scheduledTimer(withTimeInterval: pendingCodeTimeout, repeats: false) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                debugLog("[Verify] Pending code timeout — clearing pendingCode")
                 self.pendingCode = nil
             }
         }
@@ -259,7 +254,6 @@ final class VerificationService {
         overallTimer?.invalidate()
         overallTimer = Timer.scheduledTimer(withTimeInterval: overallTimeout, repeats: false) { [weak self] _ in
             Task { @MainActor in
-                debugLog("[Verify] Overall timeout (3 min) — stopping monitoring")
                 self?.stopMonitoring()
             }
         }

@@ -36,8 +36,10 @@ class EventTapManager {
         CGRequestListenEventAccess()
     }
 
-    func start() {
-        guard eventTap == nil else { return }
+    /// Start the event tap. Returns `true` if the tap was created successfully.
+    @discardableResult
+    func start() -> Bool {
+        guard eventTap == nil else { return true }
 
         // Event mask: mouse tracking + keyboard + system-defined + all other types.
         // We use ~0 (all types) because the fn/Globe emoji trigger uses synthetic
@@ -56,8 +58,7 @@ class EventTapManager {
             callback: eventTapCallback,
             userInfo: refcon
         ) else {
-            print("[EventTapManager] Failed to create event tap. Check Input Monitoring permission.")
-            return
+            return false
         }
 
         eventTap = tap
@@ -72,6 +73,7 @@ class EventTapManager {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
         }
+        return true
     }
 
     func stop() {

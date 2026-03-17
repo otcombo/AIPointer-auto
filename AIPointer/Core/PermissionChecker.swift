@@ -28,27 +28,13 @@ class PermissionChecker: ObservableObject {
     /// 检查所有权限状态（含屏幕录制，会触发系统弹窗）
     func checkAll() async {
         checkRequired()
-        let prevSR = screenRecording
         screenRecording = await checkScreenRecording()
-        if screenRecording != prevSR {
-            OnboardingLog.log("Permission", "screenRecording: \(prevSR) → \(screenRecording)")
-        }
     }
 
     /// 只检查必需权限（不触发任何系统弹窗）
     func checkRequired() {
-        let prevInput = inputMonitoring
-        let prevAX = accessibility
         inputMonitoring = CGPreflightListenEventAccess() ? .granted : .denied
         accessibility = AXIsProcessTrusted() ? .granted : .denied
-
-        // Log only on state changes to avoid spamming (polling runs every 1s)
-        if inputMonitoring != prevInput {
-            OnboardingLog.log("Permission", "inputMonitoring: \(prevInput) → \(inputMonitoring)")
-        }
-        if accessibility != prevAX {
-            OnboardingLog.log("Permission", "accessibility: \(prevAX) → \(accessibility)")
-        }
     }
 
     /// 请求输入监控权限（触发系统弹窗）
@@ -111,7 +97,6 @@ class PermissionChecker: ObservableObject {
                 let granted = task.terminationStatus == 0
                 DispatchQueue.main.async {
                     self?.finderAutomation = granted ? .granted : .denied
-                    OnboardingLog.log("Permission", "finderAutomation: \(granted ? "granted" : "denied")")
                 }
             } catch {
                 DispatchQueue.main.async {

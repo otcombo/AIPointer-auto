@@ -26,7 +26,6 @@ struct OTPFieldDetector {
         // W3C autocomplete="one-time-code" (exposed as AXAutocomplete in browsers)
         if let autocomplete = attrs.autocomplete?.lowercased(),
            autocomplete.contains("one-time-code") {
-            debugLog("[OTPDetect] TIER1: autocomplete=one-time-code")
             return .tier1
         }
 
@@ -34,20 +33,17 @@ struct OTPFieldDetector {
         let identifiers = [attrs.domId, attrs.domName, attrs.identifier].compactMap { $0?.lowercased() }
         for id in identifiers {
             if tier1ExactIds.contains(id) {
-                debugLog("[OTPDetect] TIER1: exact id match '\(id)'")
                 return .tier1
             }
         }
 
         // Split OTP pattern: multiple single-char inputs in sequence
         if attrs.maxLength == 1, isSplitOTPGroup(element: element) {
-            debugLog("[OTPDetect] TIER1: split OTP (maxLength=1)")
             return .tier1
         }
 
         // Split OTP with unknown maxLength but strong structural signal
         if attrs.maxLength == nil, isSplitOTPGroup(element: element) {
-            debugLog("[OTPDetect] TIER2: split OTP (maxLength=nil)")
             return .tier2
         }
 
@@ -60,7 +56,6 @@ struct OTPFieldDetector {
         for id in allIdentifiers {
             for keyword in tier2Keywords {
                 if id.containsWord(keyword) {
-                    debugLog("[OTPDetect] TIER2: identifier '\(id)' contains word '\(keyword)'")
                     return .tier2
                 }
             }
@@ -72,7 +67,6 @@ struct OTPFieldDetector {
             .compactMap { $0 }
         for text in textHints {
             if matchesVerificationPattern(text) {
-                debugLog("[OTPDetect] TIER2: text hint '\(text.prefix(80))' matches pattern")
                 return .tier2
             }
         }
@@ -111,12 +105,7 @@ struct OTPFieldDetector {
         }
 
         if signals.count >= 3 {
-            debugLog("[OTPDetect] TIER3: \(signals.count) signals: \(signals.joined(separator: ", "))")
             return .tier3
-        }
-
-        if !signals.isEmpty {
-            debugLog("[OTPDetect] SKIP: only \(signals.count)/3 signals: \(signals.joined(separator: ", "))")
         }
 
         return .none

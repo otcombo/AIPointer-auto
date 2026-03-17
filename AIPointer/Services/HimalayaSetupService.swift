@@ -120,7 +120,11 @@ class HimalayaSetupService: ObservableObject {
         }
     }
 
-    private func log(_ msg: String) { OnboardingLog.log("Himalaya", msg) }
+    private func log(_ msg: String) {
+        #if DEBUG
+        print("[Himalaya] \(msg)")
+        #endif
+    }
 
     // MARK: - Setup Flow
 
@@ -374,16 +378,16 @@ class HimalayaSetupService: ObservableObject {
 
                     let cmdShort = command.count > 80 ? String(command.prefix(80)) + "..." : command
                     if exitCode != 0 || !stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        OnboardingLog.log("Himalaya", "shell exit=\(exitCode) cmd=\(cmdShort)")
+                        log( "shell exit=\(exitCode) cmd=\(cmdShort)")
                         if !stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            OnboardingLog.log("Himalaya", "shell stderr: \(stderr.trimmingCharacters(in: .whitespacesAndNewlines))")
+                            log( "shell stderr: \(stderr.trimmingCharacters(in: .whitespacesAndNewlines))")
                         }
                     }
 
                     let result = stdout.isEmpty ? stderr : stdout
                     continuation.resume(returning: result.isEmpty ? nil : result)
                 } catch {
-                    OnboardingLog.log("Himalaya", "shell exception: \(error) cmd=\(command)")
+                    log( "shell exception: \(error) cmd=\(command)")
                     continuation.resume(returning: nil)
                 }
             }

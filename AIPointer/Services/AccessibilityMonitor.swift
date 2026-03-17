@@ -1,20 +1,6 @@
 import Cocoa
 import ApplicationServices
 
-let debugLog: (String) -> Void = {
-    let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("AIPointer-debug.log")
-    return { msg in
-        let line = "\(ISO8601DateFormatter().string(from: Date())) \(msg)\n"
-        if let fh = try? FileHandle(forWritingTo: url) {
-            fh.seekToEndOfFile()
-            fh.write(line.data(using: .utf8)!)
-            fh.closeFile()
-        } else {
-            try? line.data(using: .utf8)!.write(to: url)
-        }
-    }
-}()
-
 /// Monitors the focused UI element across applications using AXObserver.
 /// When the user focuses a new element, `onFocusedElementChanged` fires with the AXUIElement.
 ///
@@ -49,7 +35,6 @@ final class AccessibilityMonitor {
     ]
 
     func start() {
-        debugLog("[AXMonitor] start()")
         // Observe app activation
         workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
@@ -57,13 +42,11 @@ final class AccessibilityMonitor {
             queue: .main
         ) { [weak self] notification in
             guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-            debugLog("[AXMonitor] App activated: \(app.localizedName ?? "?") (\(app.bundleIdentifier ?? "?"))")
             self?.attachToApp(app)
         }
 
         // Attach to currently active app immediately
         if let frontApp = NSWorkspace.shared.frontmostApplication {
-            debugLog("[AXMonitor] Attaching to frontmost: \(frontApp.localizedName ?? "?") (\(frontApp.bundleIdentifier ?? "?")")
             attachToApp(frontApp)
         }
     }
@@ -103,8 +86,6 @@ final class AccessibilityMonitor {
             if AXUIElementCopyAttributeValue(element, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
                let focused = focusedRef {
                 let focusedElement = focused as! AXUIElement
-                let attrs = AXAttributes(element: focusedElement)
-                debugLog("[AXMonitor] Focus changed → role=\(attrs.string("AXRole") ?? "nil"), id=\(attrs.domId ?? "nil"), name=\(attrs.domName ?? "nil"), placeholder=\(attrs.placeholderValue ?? "nil"), autocomplete=\(attrs.autocomplete ?? "nil"), label=\(attrs.label ?? "nil"), title=\(attrs.title ?? "nil"), desc=\(attrs.axDescription ?? "nil")")
                 DispatchQueue.main.async {
                     monitor.onFocusedElementChanged?(focusedElement)
                 }
@@ -113,13 +94,11 @@ final class AccessibilityMonitor {
 
         let createResult = AXObserverCreate(pid, callback, &observer)
         guard createResult == .success, let observer else {
-            debugLog("[AXMonitor] AXObserverCreate FAILED: \(createResult.rawValue)")
             return
         }
 
         let refcon = Unmanaged.passUnretained(self).toOpaque()
-        let addResult = AXObserverAddNotification(observer, appElement, kAXFocusedUIElementChangedNotification as CFString, refcon)
-        debugLog("[AXMonitor] Observer registered for pid=\(pid), addNotification result=\(addResult.rawValue)")
+        AXObserverAddNotification(observer, appElement, kAXFocusedUIElementChangedNotification as CFString, refcon)
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
 
         currentObserver = observer
@@ -130,12 +109,8 @@ final class AccessibilityMonitor {
         if AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
            let focused = focusedRef {
             let focusedElement = focused as! AXUIElement
-            let attrs = AXAttributes(element: focusedElement)
-            debugLog("[AXMonitor] Immediate focus check → role=\(attrs.string("AXRole") ?? "nil"), subrole=\(attrs.subrole ?? "nil"), id=\(attrs.domId ?? "nil"), name=\(attrs.domName ?? "nil"), class=\(attrs.domClass ?? "nil"), placeholder=\(attrs.placeholderValue ?? "nil"), autocomplete=\(attrs.autocomplete ?? "nil"), label=\(attrs.label ?? "nil"), title=\(attrs.title ?? "nil"), desc=\(attrs.axDescription ?? "nil"), inputMode=\(attrs.inputMode ?? "nil"), inputType=\(attrs.inputType ?? "nil"), maxLen=\(attrs.maxLength.map(String.init) ?? "nil"), value=\(attrs.value ?? "nil")")
             lastFocusedFingerprint = fingerprint(for: focusedElement)
             onFocusedElementChanged?(focusedElement)
-        } else {
-            debugLog("[AXMonitor] Immediate focus check → failed to get focused element")
         }
 
         // Start polling fallback (Chrome doesn't fire AXObserver callbacks)
@@ -175,9 +150,6 @@ final class AccessibilityMonitor {
 
         guard fp != lastFocusedFingerprint else { return }
         lastFocusedFingerprint = fp
-
-        let attrs = AXAttributes(element: focusedElement)
-        debugLog("[AXMonitor] Poll detected focus change → role=\(attrs.string("AXRole") ?? "nil"), id=\(attrs.domId ?? "nil"), placeholder=\(attrs.placeholderValue ?? "nil"), label=\(attrs.label ?? "nil"), title=\(attrs.title ?? "nil"), desc=\(attrs.axDescription ?? "nil")")
 
         onFocusedElementChanged?(focusedElement)
     }
