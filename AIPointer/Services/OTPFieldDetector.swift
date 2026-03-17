@@ -19,16 +19,23 @@ struct OTPFieldDetector {
     static func detect(element: AXUIElement) -> Confidence {
         let attrs = AXAttributes(element: element)
 
-        // Only check single-line text input fields.
-        // OTP fields are always <input> (AXTextField), never <textarea> (AXTextArea).
-        // This filters out rich text editors (Notion, Google Docs, etc.).
-        guard attrs.isSingleLineTextField else { return .none }
+        // Must be a text input field. For non-TextField roles, log for diagnostics.
+        let isTextField = attrs.isSingleLineTextField || attrs.isTextField
+        if !isTextField {
+            let role = attrs.string(kAXRoleAttribute) ?? "nil"
+            if role != "AXGroup" && role != "AXStaticText" && role != "nil" {
+                debugLog("REJECTED role=\(role) subrole=\(attrs.subrole ?? "nil")", attrs: attrs)
+            }
+            return .none
+        }
+        let isSingleLine = attrs.isSingleLineTextField
 
         // --- Definitive: single signal is enough ---
 
         // W3C autocomplete="one-time-code" — the gold standard
         if let autocomplete = attrs.autocomplete?.lowercased(),
            autocomplete.contains("one-time-code") {
+            debugLog("DEFINITIVE autocomplete=one-time-code", attrs: attrs)
             return .definitive
         }
 
@@ -36,16 +43,39 @@ struct OTPFieldDetector {
         let identifiers = [attrs.domId, attrs.domName, attrs.identifier].compactMap { $0?.lowercased() }
         for id in identifiers {
             if definitiveIds.contains(id) {
+                debugLog("DEFINITIVE exactId=\(id)", attrs: attrs)
                 return .definitive
             }
         }
 
-        // Split OTP: 4-8 single-char inputs grouped together
-        if attrs.maxLength == 1, isSplitOTPGroup(element: element) {
+        // Split OTP: 4-8 single-char inputs grouped together.
+        if attrs.maxLength == 1, isSplitOTPGroup(element: element, requireMaxLength: true) {
+            debugLog("DEFINITIVE splitOTP maxLen=1", attrs: attrs)
             return .definitive
         }
-        if attrs.maxLength == nil, isSplitOTPGroup(element: element) {
+        // Fallback: some React component libraries don't set maxLength on split OTP inputs.
+        // Accept maxLength=nil but require that sibling fields are empty or single-char valued,
+        // which distinguishes them from regular form fields that have longer content.
+        if attrs.maxLength == nil, isSplitOTPGroup(element: element, requireMaxLength: false) {
+            debugLog("DETECTED splitOTP inferredSingleChar", attrs: attrs)
             return .detected
+        }
+
+        // --- Scoring signals below only apply to single-line inputs ---
+        // AXTextArea (contenteditable) can match definitive/split-OTP above,
+        // but should not enter the scoring path (too many false positives in editors).
+        guard isSingleLine else { return .none }
+
+        // --- Strong placeholder/label: field explicitly says it's for a code ---
+        // A placeholder like "Enter verification code" or label like "验证码" is the field
+        // telling us directly what it's for. This is a strong signal on its own.
+
+        let textHints = [attrs.placeholderValue, attrs.label].compactMap { $0 }
+        for hint in textHints {
+            if matchesStrongOTPHint(hint) {
+                debugLog("DETECTED strongHint(\(hint.prefix(50)))", attrs: attrs)
+                return .detected
+            }
         }
 
         // --- Signal scoring: need 2+ independent signals ---
@@ -53,22 +83,23 @@ struct OTPFieldDetector {
         // are the same fact expressed differently, so they count as one signal together.
 
         var score = 0
+        var signals: [String] = []
 
         // Signal: OTP keyword in id/name/class (word-boundary matched)
         let allIds = [attrs.domId, attrs.domName, attrs.domClass, attrs.identifier]
             .compactMap { $0?.lowercased() }
         if matchesOTPKeyword(in: allIds) {
             score += 1
+            signals.append("keyword(\(allIds.joined(separator: ",")))")
         }
 
-        // Signal: placeholder text matches OTP pattern
-        if let placeholder = attrs.placeholderValue, matchesOTPPlaceholder(placeholder) {
-            score += 1
-        }
-
-        // Signal: associated label matches OTP pattern
-        if let label = attrs.label, matchesOTPPlaceholder(label) {
-            score += 1
+        // Signal: placeholder or label contains weaker OTP-related text
+        for hint in textHints {
+            if matchesWeakOTPHint(hint) {
+                score += 1
+                signals.append("hint(\(hint.prefix(50)))")
+                break
+            }
         }
 
         // Signal: short numeric input field (maxlength 4-8 + numeric type/inputmode).
@@ -77,18 +108,51 @@ struct OTPFieldDetector {
         // phone area codes, and zip codes also match, so this alone is weak.
         if isNumericShortField(attrs: attrs) {
             score += 1
+            signals.append("numericShort(maxLen=\(attrs.maxLength ?? 0),inputMode=\(attrs.inputMode ?? "nil"))")
         }
 
         // Signal: nearby submit button has verification-related text
         if hasVerifyButtonNearby(element: element) {
             score += 1
+            signals.append("verifyButton")
         }
 
         if score >= 2 {
+            debugLog("DETECTED score=\(score) signals=[\(signals.joined(separator: ", "))]", attrs: attrs)
             return .detected
         }
 
         return .none
+    }
+
+    // MARK: - Debug logging
+
+    private static func debugLog(_ reason: String, attrs: AXAttributes) {
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let info = """
+        [\(timestamp)] OTPFieldDetector: \(reason)
+          role=\(attrs.string(kAXRoleAttribute) ?? "nil") subrole=\(attrs.subrole ?? "nil")
+          domId=\(attrs.domId ?? "nil") domName=\(attrs.domName ?? "nil") domClass=\(attrs.domClass ?? "nil")
+          identifier=\(attrs.identifier ?? "nil")
+          autocomplete=\(attrs.autocomplete ?? "nil")
+          inputMode=\(attrs.inputMode ?? "nil") inputType=\(attrs.inputType ?? "nil")
+          maxLength=\(attrs.maxLength.map(String.init) ?? "nil") pattern=\(attrs.pattern ?? "nil")
+          placeholder=\(attrs.placeholderValue ?? "nil")
+          label=\(attrs.label ?? "nil") description=\(attrs.axDescription ?? "nil")
+          title=\(attrs.title ?? "nil") value=\(attrs.value?.prefix(30).description ?? "nil")
+        """
+        let path = NSHomeDirectory() + "/aipointer_otp_debug.log"
+        if let data = (info + "\n").data(using: .utf8) {
+            if FileManager.default.fileExists(atPath: path) {
+                if let handle = FileHandle(forWritingAtPath: path) {
+                    handle.seekToEndOfFile()
+                    handle.write(data)
+                    handle.closeFile()
+                }
+            } else {
+                FileManager.default.createFile(atPath: path, contents: data)
+            }
+        }
     }
 
     // MARK: - Definitive IDs (from real websites)
@@ -141,20 +205,19 @@ struct OTPFieldDetector {
         return false
     }
 
-    // MARK: - Placeholder / label matching
+    // MARK: - Placeholder / label matching (two tiers)
 
-    /// Match placeholder or label text against OTP-specific patterns.
-    /// These must be short, field-level hints — not general page content.
-    private static let placeholderPatterns: [String] = [
-        // English
-        "verification code", "security code", "one-time code",
-        "enter code", "enter the code", "digit code",
-        "enter otp", "enter pin",
+    /// Strong hints: unambiguously OTP — enough to trigger on their own.
+    /// These phrases only appear on verification code input fields.
+    private static let strongHintPatterns: [String] = [
+        // English — explicit OTP phrases
+        "verification code", "one-time code", "one-time password",
+        "enter otp", "enter the code", "enter code",
+        "digit code",
 
         // Chinese
         "验证码", "校验码", "确认码", "动态码",
         "驗證碼", "確認碼",
-        "请输入验证码", "输入验证码",
 
         // Japanese
         "確認コード", "認証コード", "検証コード",
@@ -163,9 +226,23 @@ struct OTPFieldDetector {
         "인증번호", "인증 코드", "확인 코드",
     ]
 
-    private static func matchesOTPPlaceholder(_ text: String) -> Bool {
+    private static func matchesStrongOTPHint(_ text: String) -> Bool {
         let lower = text.lowercased()
-        for pattern in placeholderPatterns {
+        for pattern in strongHintPatterns {
+            if lower.contains(pattern) { return true }
+        }
+        return false
+    }
+
+    /// Weak hints: suggestive but not conclusive — need a second signal.
+    /// "security code" could be a CVV; "enter pin" could be a bank PIN.
+    private static let weakHintPatterns: [String] = [
+        "security code", "enter pin", "passcode",
+    ]
+
+    private static func matchesWeakOTPHint(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        for pattern in weakHintPatterns {
             if lower.contains(pattern) { return true }
         }
         return false
@@ -198,7 +275,10 @@ struct OTPFieldDetector {
 
     // MARK: - Split OTP group detection
 
-    private static func isSplitOTPGroup(element: AXUIElement) -> Bool {
+    /// - requireMaxLength: if true, only count children with maxLength=1 (strict).
+    ///   If false, also count children with maxLength=nil whose value is empty or single-char
+    ///   (catches React split OTP without maxLength, but rejects filled form fields).
+    private static func isSplitOTPGroup(element: AXUIElement, requireMaxLength: Bool) -> Bool {
         var current = element
 
         for _ in 0..<8 {
@@ -216,7 +296,7 @@ struct OTPFieldDetector {
                 continue
             }
 
-            let count = countTextFieldChildren(among: children)
+            let count = countTextFieldChildren(among: children, requireMaxLength: requireMaxLength)
             if count >= 4 && count <= 8 {
                 return true
             }
@@ -230,32 +310,39 @@ struct OTPFieldDetector {
         return false
     }
 
-    private static func countTextFieldChildren(among children: [AXUIElement]) -> Int {
+    private static func countTextFieldChildren(among children: [AXUIElement], requireMaxLength: Bool) -> Int {
         var count = 0
         for child in children {
             let childAttrs = AXAttributes(element: child)
-            if childAttrs.isSingleLineTextField {
-                let maxLen = childAttrs.maxLength
-                if maxLen == 1 || maxLen == nil {
-                    count += 1
-                }
+            if childAttrs.isSingleLineTextField, isSingleCharInput(childAttrs, strict: requireMaxLength) {
+                count += 1
             } else {
                 var grandchildrenRef: CFTypeRef?
                 if AXUIElementCopyAttributeValue(child, kAXChildrenAttribute as CFString, &grandchildrenRef) == .success,
                    let grandchildren = grandchildrenRef as? [AXUIElement] {
                     for gc in grandchildren {
                         let gcAttrs = AXAttributes(element: gc)
-                        if gcAttrs.isSingleLineTextField {
-                            let maxLen = gcAttrs.maxLength
-                            if maxLen == 1 || maxLen == nil {
-                                count += 1
-                            }
+                        if gcAttrs.isSingleLineTextField, isSingleCharInput(gcAttrs, strict: requireMaxLength) {
+                            count += 1
                         }
                     }
                 }
             }
         }
         return count
+    }
+
+    /// Check if a field looks like a single-character OTP digit input.
+    /// - strict: require maxLength=1
+    /// - relaxed: accept maxLength=nil if value is empty or single character
+    ///   (regular form fields like "Bank name" will have longer values, filtering them out)
+    private static func isSingleCharInput(_ attrs: AXAttributes, strict: Bool) -> Bool {
+        if attrs.maxLength == 1 { return true }
+        if strict { return false }
+        // Relaxed: no maxLength, but value must be empty or single char
+        guard attrs.maxLength == nil else { return false }
+        let value = attrs.value ?? ""
+        return value.count <= 1
     }
 
     // MARK: - Button proximity detection
