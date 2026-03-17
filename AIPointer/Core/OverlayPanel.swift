@@ -45,12 +45,20 @@ class OverlayPanel: NSPanel {
     override var canBecomeKey: Bool { _canBecomeKeyWindow }
     override var canBecomeMain: Bool { _canBecomeKeyWindow }
 
+    /// Called when the user clicks outside the panel (another window gains key).
+    var onResignKey: (() -> Void)?
+
     // Auto-activate accessory app when panel becomes key
     override func becomeKey() {
         super.becomeKey()
         if NSApp.activationPolicy() == .accessory {
             NSApp.activate(ignoringOtherApps: true)
         }
+    }
+
+    override func resignKey() {
+        super.resignKey()
+        onResignKey?()
     }
 
     /// Block fn/Globe at the window level to prevent emoji picker.

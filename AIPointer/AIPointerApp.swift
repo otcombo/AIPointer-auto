@@ -300,6 +300,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         overlayPanel = OverlayPanel(hostingView: hostingView)
 
+        // Dismiss when the user clicks outside the panel
+        overlayPanel.onResignKey = { [weak self] in
+            guard let self else { return }
+            if self.viewModel.state.isExpanded {
+                self.viewModel.dismiss()
+            }
+        }
+
         // Connect screenshot request (from camera button in input mode)
         viewModel.onScreenshotRequested = { [weak self] in
             self?.screenshotEnteredFromIdle = false
