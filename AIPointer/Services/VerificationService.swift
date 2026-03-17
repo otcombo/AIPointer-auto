@@ -69,7 +69,7 @@ final class VerificationService {
         let confidence = OTPFieldDetector.detect(element: element)
 
         switch confidence {
-        case .tier1, .tier2, .tier3:
+        case .definitive, .detected:
             focusedOnOTP = true
             pendingCodeTimer?.invalidate()
             pendingCodeTimer = nil

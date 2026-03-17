@@ -2,118 +2,99 @@ import Cocoa
 import ApplicationServices
 
 /// Detects whether a focused UI element is a verification code / OTP input field.
-/// Uses a tier-based approach derived from W3C standards, Chromium autofill heuristics,
-/// and real-world HTML patterns from major websites.
+///
+/// Design principles:
+/// - Only examine the field's own attributes and immediate form structure
+/// - Never scan page text content (causes false positives in rich editors like Notion)
+/// - Follow browser industry practice: autocomplete attribute > field identifiers > form structure
 struct OTPFieldDetector {
 
     enum Confidence {
         case none
-        case tier3  // Combo signals (numeric + maxlength, placeholder format, etc.)
-        case tier2  // High confidence (id/name/class contains OTP keywords)
-        case tier1  // Definitive (autocomplete="one-time-code", exact id match, split OTP)
+        case detected   // Sufficient signals to trigger monitoring
+        case definitive // Explicit standard signal (autocomplete, exact id, split OTP)
     }
 
     /// Analyze the given AXUIElement and return detection confidence.
-    /// Also logs the reason for debugging false positives.
     static func detect(element: AXUIElement) -> Confidence {
         let attrs = AXAttributes(element: element)
 
-        // Only check text input fields
-        guard attrs.isTextField else { return .none }
+        // Only check single-line text input fields.
+        // OTP fields are always <input> (AXTextField), never <textarea> (AXTextArea).
+        // This filters out rich text editors (Notion, Google Docs, etc.).
+        guard attrs.isSingleLineTextField else { return .none }
 
-        // --- Tier 1: Definitive signals ---
+        // --- Definitive: single signal is enough ---
 
-        // W3C autocomplete="one-time-code" (exposed as AXAutocomplete in browsers)
+        // W3C autocomplete="one-time-code" — the gold standard
         if let autocomplete = attrs.autocomplete?.lowercased(),
            autocomplete.contains("one-time-code") {
-            return .tier1
+            return .definitive
         }
 
-        // Exact id/name match for common OTP field identifiers
+        // Exact id/name match for known OTP field identifiers
         let identifiers = [attrs.domId, attrs.domName, attrs.identifier].compactMap { $0?.lowercased() }
         for id in identifiers {
-            if tier1ExactIds.contains(id) {
-                return .tier1
+            if definitiveIds.contains(id) {
+                return .definitive
             }
         }
 
-        // Split OTP pattern: multiple single-char inputs in sequence
+        // Split OTP: 4-8 single-char inputs grouped together
         if attrs.maxLength == 1, isSplitOTPGroup(element: element) {
-            return .tier1
+            return .definitive
         }
-
-        // Split OTP with unknown maxLength but strong structural signal
         if attrs.maxLength == nil, isSplitOTPGroup(element: element) {
-            return .tier2
+            return .detected
         }
 
-        // --- Tier 2: High confidence (keyword in id/name/class/identifier) ---
-        // Uses word-boundary matching: "otp" matches "otp_field" / "sms-otp"
-        // but NOT "tooltip" or "optional".
+        // --- Signal scoring: need 2+ independent signals ---
 
-        let allIdentifiers = [attrs.domId, attrs.domName, attrs.domClass, attrs.identifier]
+        var score = 0
+
+        // Signal: OTP keyword in id/name/class (word-boundary matched)
+        let allIds = [attrs.domId, attrs.domName, attrs.domClass, attrs.identifier]
             .compactMap { $0?.lowercased() }
-        for id in allIdentifiers {
-            for keyword in tier2Keywords {
-                if id.containsWord(keyword) {
-                    return .tier2
-                }
-            }
+        if matchesOTPKeyword(in: allIds) {
+            score += 1
         }
 
-        // Tier 2: placeholder, label, description matches verification patterns
-        // (but NOT title — window/element titles are too noisy)
-        let textHints = [attrs.placeholderValue, attrs.label, attrs.axDescription]
-            .compactMap { $0 }
-        for text in textHints {
-            if matchesVerificationPattern(text) {
-                return .tier2
-            }
+        // Signal: placeholder text matches OTP pattern
+        if let placeholder = attrs.placeholderValue, matchesOTPPlaceholder(placeholder) {
+            score += 1
         }
 
-        // --- Tier 3: Combination signals (need 3+ to trigger) ---
+        // Signal: associated label matches OTP pattern
+        if let label = attrs.label, matchesOTPPlaceholder(label) {
+            score += 1
+        }
 
-        var signals: [String] = []
-
-        // Numeric-only input with appropriate max length (4-8 digits)
+        // Signal: numeric input with OTP-length constraint (4-8 digits)
         if isNumericConstrained(attrs: attrs) {
-            signals.append("numericConstrained(maxLen=\(attrs.maxLength ?? 0))")
+            score += 1
         }
 
-        // inputmode="numeric" or type="tel" (browsers expose as AX attributes)
+        // Signal: inputmode="numeric" (without requiring maxlength — still meaningful)
         if let inputMode = attrs.inputMode?.lowercased(),
            inputMode == "numeric" || inputMode == "tel" {
-            signals.append("inputMode=\(inputMode)")
+            score += 1
         }
 
-        // Placeholder or label text matches verification code patterns
-        for text in textHints {
-            if matchesVerificationPattern(text) {
-                signals.append("textHint='\(text.prefix(40))'")
-                break
-            }
+        // Signal: nearby submit button has verification-related text
+        if hasVerifyButtonNearby(element: element) {
+            score += 1
         }
 
-        // Window title contains verification-related keywords
-        if let windowTitle = attrs.windowTitle, matchesVerificationPattern(windowTitle) {
-            signals.append("windowTitle='\(windowTitle.prefix(40))'")
-        }
-
-        // Nearby text contains OTP-related phrases
-        if scanNearbyText(element: element) {
-            signals.append("nearbyText")
-        }
-
-        if signals.count >= 3 {
-            return .tier3
+        if score >= 2 {
+            return .detected
         }
 
         return .none
     }
 
-    // MARK: - Tier 1 exact IDs (from real websites)
+    // MARK: - Definitive IDs (from real websites)
 
-    private static let tier1ExactIds: Set<String> = [
+    private static let definitiveIds: Set<String> = [
         // Google
         "idvpin", "totppin",
         // Microsoft
@@ -134,11 +115,9 @@ struct OTPFieldDetector {
         "totp", "totp-code",
     ]
 
-    // MARK: - Tier 2 keywords (word-boundary match in id/name/class/identifier)
-    // Safe to use short terms because containsWord() requires word boundaries:
-    // "otp" matches "otp_field", "sms-otp" but NOT "tooltip", "optional"
+    // MARK: - OTP keywords (word-boundary match in id/name/class)
 
-    private static let tier2Keywords: [String] = [
+    private static let otpKeywords: [String] = [
         "otp", "totp", "2fa", "mfa",
         "one-time", "onetime",
         "passcode",
@@ -152,9 +131,70 @@ struct OTPFieldDetector {
         "confirm-code", "confirmcode", "confirm_code",
     ]
 
-    // MARK: - Tier 3 helpers
+    private static func matchesOTPKeyword(in identifiers: [String]) -> Bool {
+        for id in identifiers {
+            for keyword in otpKeywords {
+                if id.containsWord(keyword) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
 
-    /// Check if the element is part of a split OTP group (multiple single-digit inputs).
+    // MARK: - Placeholder / label matching
+
+    /// Match placeholder or label text against OTP-specific patterns.
+    /// These must be short, field-level hints — not general page content.
+    private static let placeholderPatterns: [String] = [
+        // English
+        "verification code", "security code", "one-time code",
+        "enter code", "enter the code", "digit code",
+        "enter otp", "enter pin",
+
+        // Chinese
+        "验证码", "校验码", "确认码", "动态码",
+        "驗證碼", "確認碼",
+        "请输入验证码", "输入验证码",
+
+        // Japanese
+        "確認コード", "認証コード", "検証コード",
+
+        // Korean
+        "인증번호", "인증 코드", "확인 코드",
+    ]
+
+    private static func matchesOTPPlaceholder(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        for pattern in placeholderPatterns {
+            if lower.contains(pattern) { return true }
+        }
+        return false
+    }
+
+    // MARK: - Numeric constraint check
+
+    private static func isNumericConstrained(attrs: AXAttributes) -> Bool {
+        let maxLen = attrs.maxLength ?? 0
+        guard maxLen >= 4 && maxLen <= 8 else { return false }
+
+        if let inputMode = attrs.inputMode?.lowercased(),
+           inputMode == "numeric" || inputMode == "tel" {
+            return true
+        }
+        if let inputType = attrs.inputType?.lowercased(),
+           inputType == "number" || inputType == "tel" {
+            return true
+        }
+        if let pattern = attrs.pattern,
+           pattern.contains("[0-9]") || pattern.contains("\\d") {
+            return true
+        }
+        return false
+    }
+
+    // MARK: - Split OTP group detection
+
     private static func isSplitOTPGroup(element: AXUIElement) -> Bool {
         var current = element
 
@@ -191,7 +231,7 @@ struct OTPFieldDetector {
         var count = 0
         for child in children {
             let childAttrs = AXAttributes(element: child)
-            if childAttrs.isTextField {
+            if childAttrs.isSingleLineTextField {
                 let maxLen = childAttrs.maxLength
                 if maxLen == 1 || maxLen == nil {
                     count += 1
@@ -202,7 +242,7 @@ struct OTPFieldDetector {
                    let grandchildren = grandchildrenRef as? [AXUIElement] {
                     for gc in grandchildren {
                         let gcAttrs = AXAttributes(element: gc)
-                        if gcAttrs.isTextField {
+                        if gcAttrs.isSingleLineTextField {
                             let maxLen = gcAttrs.maxLength
                             if maxLen == 1 || maxLen == nil {
                                 count += 1
@@ -215,53 +255,29 @@ struct OTPFieldDetector {
         return count
     }
 
-    /// Check if the field constrains input to numeric with appropriate length.
-    private static func isNumericConstrained(attrs: AXAttributes) -> Bool {
-        let maxLen = attrs.maxLength ?? 0
-        guard maxLen >= 4 && maxLen <= 8 else { return false }
+    // MARK: - Button proximity detection
 
-        if let inputMode = attrs.inputMode?.lowercased(),
-           inputMode == "numeric" || inputMode == "tel" {
-            return true
-        }
-        if let inputType = attrs.inputType?.lowercased(),
-           inputType == "number" || inputType == "tel" {
-            return true
-        }
-        if let pattern = attrs.pattern,
-           pattern.contains("[0-9]") || pattern.contains("\\d") {
-            return true
-        }
-        return false
-    }
-
-    /// Scan text content near the focused element for OTP-related phrases.
-    private static func scanNearbyText(element: AXUIElement) -> Bool {
-        var collected = ""
+    /// Walk up the AX tree to find a form-like container, then check if it has
+    /// a submit button with verification-related text ("Verify", "Submit Code", etc.).
+    private static func hasVerifyButtonNearby(element: AXUIElement) -> Bool {
         var current = element
 
-        for _ in 0..<5 {
+        // Walk up at most 6 levels to find a form/group container
+        for _ in 0..<6 {
             var parentRef: CFTypeRef?
             guard AXUIElementCopyAttributeValue(current, kAXParentAttribute as CFString, &parentRef) == .success,
                   let parent = parentRef else { break }
             let parentElement = parent as! AXUIElement
 
-            var childrenRef: CFTypeRef?
-            if AXUIElementCopyAttributeValue(parentElement, kAXChildrenAttribute as CFString, &childrenRef) == .success,
-               let children = childrenRef as? [AXUIElement] {
-                if children.count > 1 {
-                    for child in children {
-                        collectText(from: child, into: &collected, depth: 2)
-                    }
-                    let lower = collected.lowercased()
-                    for phrase in pageContextPatterns {
-                        if lower.contains(phrase) { return true }
-                    }
-                }
-            }
-
             let role = AXAttributes(element: parentElement).string(kAXRoleAttribute) ?? ""
+
+            // Stop at web area boundary
             if role == "AXWebArea" || role == "AXScrollArea" { break }
+
+            // Check children of this container for buttons
+            if scanForVerifyButton(in: parentElement) {
+                return true
+            }
 
             current = parentElement
         }
@@ -269,92 +285,60 @@ struct OTPFieldDetector {
         return false
     }
 
-    private static func collectText(from element: AXUIElement, into buffer: inout String, depth: Int) {
-        let attrs = AXAttributes(element: element)
-        if let v = attrs.value, !v.isEmpty { buffer += " " + v }
-        if let t = attrs.title, !t.isEmpty { buffer += " " + t }
-        if let d = attrs.axDescription, !d.isEmpty { buffer += " " + d }
-
-        guard depth > 1 else { return }
-
+    /// Scan direct children (and one level of grandchildren) for buttons with verify text.
+    private static func scanForVerifyButton(in container: AXUIElement) -> Bool {
         var childrenRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
-           let children = childrenRef as? [AXUIElement] {
-            for child in children {
-                collectText(from: child, into: &buffer, depth: depth - 1)
-            }
-        }
-    }
+        guard AXUIElementCopyAttributeValue(container, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+              let children = childrenRef as? [AXUIElement] else { return false }
 
-    /// High-confidence page-level phrases that indicate an OTP flow.
-    /// Each phrase must be specific enough to avoid matching general UI text.
-    private static let pageContextPatterns: [String] = [
-        // English — multi-word, specific to OTP flows
-        "check your email", "check your inbox",
-        "enter the code", "enter code below",
-        "sent a code", "sent you a code",
-        "we've sent", "we\u{2019}ve sent",
-        "verification code",
+        for child in children {
+            if isVerifyButton(child) { return true }
 
-        // Chinese — these are specific enough (2+ chars forming a distinct term)
-        "验证码", "校验码", "确认码",
-        "驗證碼", "確認碼",
-
-        // Japanese
-        "確認コード", "認証コード", "コードを入力",
-
-        // Korean
-        "인증번호", "인증 코드", "코드를 입력",
-    ]
-
-    /// Match text against verification code patterns in multiple languages.
-    private static func matchesVerificationPattern(_ text: String) -> Bool {
-        let lower = text.lowercased()
-        for pattern in verificationPatterns {
-            if lower.contains(pattern) {
-                return true
+            // One level deeper
+            var grandchildrenRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(child, kAXChildrenAttribute as CFString, &grandchildrenRef) == .success,
+               let grandchildren = grandchildrenRef as? [AXUIElement] {
+                for gc in grandchildren {
+                    if isVerifyButton(gc) { return true }
+                }
             }
         }
         return false
     }
 
-    /// Verification code keywords across languages.
-    /// Each must be specific enough to avoid matching general UI text.
-    private static let verificationPatterns: [String] = [
-        // English — multi-word or sufficiently unique
-        "verification code", "verify code", "security code",
-        "one-time code", "one-time password",
-        "enter code", "enter the code", "digit code",
-        "sent to your", "sent a code", "code sent",
-        "check your email", "check your inbox",
-        "confirm your email",
+    private static func isVerifyButton(_ element: AXUIElement) -> Bool {
+        let attrs = AXAttributes(element: element)
+        let role = attrs.string(kAXRoleAttribute) ?? ""
+        guard role == "AXButton" || role == "AXLink" else { return false }
 
-        // Chinese (Simplified + Traditional)
-        "验证码", "校验码", "确认码", "动态码",
-        "驗證碼", "確認碼",
-        "短信验证", "邮箱验证", "邮件验证",
+        let texts = [attrs.title, attrs.value, attrs.axDescription, attrs.label]
+            .compactMap { $0?.lowercased() }
+
+        for text in texts {
+            for pattern in buttonPatterns {
+                if text.contains(pattern) { return true }
+            }
+        }
+        return false
+    }
+
+    /// Button text patterns that indicate a verification form.
+    private static let buttonPatterns: [String] = [
+        // English
+        "verify", "confirm code", "submit code", "validate",
+        "resend code", "send code", "send again",
+        "didn't receive", "didn\u{2019}t receive",
+
+        // Chinese
+        "验证", "确认验证码", "发送验证码", "重新发送",
+        "获取验证码", "重新获取",
+        "驗證", "確認驗證碼",
 
         // Japanese
-        "確認コード", "認証コード", "検証コード",
-        "ワンタイムパスワード",
+        "確認する", "コードを送信", "再送信",
 
         // Korean
-        "인증번호", "인증 코드", "확인 코드",
-
-        // German
-        "bestätigungscode", "verifizierungscode", "sicherheitscode",
-
-        // French
-        "code de vérification", "code de confirmation", "code de sécurité",
-
-        // Spanish
-        "código de verificación", "código de confirmación", "código de seguridad",
-
-        // Portuguese
-        "código de verificação",
-
-        // Russian
-        "код подтверждения", "код верификации",
+        "인증", "코드 전송", "재전송",
     ]
 }
 
@@ -364,6 +348,14 @@ struct OTPFieldDetector {
 struct AXAttributes {
     let element: AXUIElement
 
+    /// Single-line text input only. Excludes AXTextArea (rich editors, contenteditable).
+    var isSingleLineTextField: Bool {
+        guard let role = string(kAXRoleAttribute) else { return false }
+        return role == kAXTextFieldRole as String
+            || subrole == kAXSecureTextFieldSubrole as String
+    }
+
+    /// Any text input including multi-line (kept for other use cases).
     var isTextField: Bool {
         guard let role = string(kAXRoleAttribute) else { return false }
         return role == kAXTextFieldRole as String
