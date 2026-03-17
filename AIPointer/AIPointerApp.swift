@@ -29,6 +29,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var isFollowingMouse = true
     private var onboardingWindow: NSWindow?
     private var permissionWindow: NSWindow?
+    private var updateWindow: NSWindow?
+    private var updateViewModel: UpdateViewModel?
 
     // Screenshot support
     private var screenshotViewModel: ScreenshotViewModel?
@@ -439,38 +441,75 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func handleUpdateState(_ state: UpdateService.State) {
         switch state {
         case .available(let version, _):
-            // Mark the menu item to show update is available
+            // Always mark the menu item
             if let menu = statusItem?.menu,
                let item = menu.items.first(where: { $0.action == #selector(checkForUpdates) }) {
                 item.title = "Update Available: v\(version)"
             }
-            // Show a subtle alert for manual checks
-            showUpdateAlert(version: version)
+            // If window not open (e.g. daily auto-check found update), open it
+            if updateViewModel == nil { showUpdateWindow() }
+            updateViewModel?.state = .available(version: version)
+
+        case .checking:
+            updateViewModel?.state = .checking
+
+        case .downloading(let progress):
+            updateViewModel?.state = .downloading(progress: progress)
+
+        case .installing:
+            updateViewModel?.state = .installing
+
+        case .idle:
+            // check() finished with no new version → up to date
+            if updateViewModel?.state == .checking {
+                updateViewModel?.state = .upToDate
+            }
 
         case .error(let msg):
-            print("[Update] Error: \(msg)")
+            updateViewModel?.state = .error(msg)
 
         default:
             break
         }
     }
 
-    private func showUpdateAlert(version: String) {
-        let alert = NSAlert()
-        alert.messageText = "Update Available"
-        alert.informativeText = "AIPointer v\(version) is available. Would you like to update now?"
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Update")
-        alert.addButton(withTitle: "Later")
-
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            updateService.downloadAndInstall()
-        }
+    @objc private func checkForUpdates() {
+        showUpdateWindow()
+        updateService.check()
     }
 
-    @objc private func checkForUpdates() {
-        updateService.check()
+    private func showUpdateWindow() {
+        if let existing = updateWindow, existing.isVisible {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let vm = UpdateViewModel(currentVersion: version)
+        vm.onDismiss = { [weak self] in self?.dismissUpdateWindow() }
+        vm.onUpdate = { [weak self] in self?.updateService.downloadAndInstall() }
+        vm.onRetry = { [weak self] in self?.updateService.check() }
+        updateViewModel = vm
+
+        let view = UpdateView(viewModel: vm)
+        let hostingController = NSHostingController(rootView: view)
+        let window = NSWindow(contentViewController: hostingController)
+        window.styleMask = [.titled, .closable]
+        window.title = L("检查更新", "Check for Updates")
+        window.isReleasedWhenClosed = false
+        window.setContentSize(NSSize(width: 320, height: 340))
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        updateWindow = window
+    }
+
+    private func dismissUpdateWindow() {
+        updateWindow?.close()
+        updateWindow = nil
+        updateViewModel = nil
     }
 
     private func applySettings() {

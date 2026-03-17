@@ -34,6 +34,15 @@ final class AccessibilityMonitor {
         "com.arc.browser",
     ]
 
+    /// All browser bundle IDs — OTP field detection is limited to browsers only.
+    private static let browserBundleIds: Set<String> = chromiumBundleIds.union([
+        "com.apple.Safari",
+        "com.apple.SafariTechnologyPreview",
+        "org.mozilla.firefox",
+        "org.mozilla.firefoxdeveloperedition",
+        "company.thebrowser.Browser",      // Arc (alternate ID)
+    ])
+
     func start() {
         // Observe app activation
         workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -65,14 +74,20 @@ final class AccessibilityMonitor {
         let pid = app.processIdentifier
         guard pid != currentPid else { return }
 
+        // Only monitor browsers — skip native apps to avoid false positives.
+        guard let bundleId = app.bundleIdentifier,
+              Self.browserBundleIds.contains(where: { bundleId.hasPrefix($0) }) else {
+            detachCurrentObserver()
+            return
+        }
+
         detachCurrentObserver()
         currentPid = pid
 
         let appElement = AXUIElementCreateApplication(pid)
 
         // Enable enhanced AX for Chromium browsers
-        if let bundleId = app.bundleIdentifier,
-           Self.chromiumBundleIds.contains(where: { bundleId.hasPrefix($0) }) {
+        if Self.chromiumBundleIds.contains(where: { bundleId.hasPrefix($0) }) {
             AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
         }
 

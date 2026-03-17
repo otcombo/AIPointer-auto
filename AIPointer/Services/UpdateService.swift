@@ -91,8 +91,8 @@ final class UpdateService {
             do {
                 let zipURL = try await download(url: url)
                 state = .readyToInstall(version: version, zipURL: zipURL)
-                try install(zipURL: zipURL)
-                relaunch()
+                let newAppURL = try extractApp(zipURL: zipURL)
+                try launchInstallerAndQuit(newAppURL: newAppURL)
             } catch {
                 log(" Install failed: \(error)")
                 state = .error(error.localizedDescription)
@@ -154,9 +154,10 @@ final class UpdateService {
         return dest
     }
 
-    // MARK: - Install (extract zip → replace .app)
+    // MARK: - Extract
 
-    private func install(zipURL: URL) throws {
+    /// Extract the zip and return the path to the .app inside.
+    private func extractApp(zipURL: URL) throws -> URL {
         state = .installing
 
         let fm = FileManager.default
@@ -174,52 +175,51 @@ final class UpdateService {
             throw UpdateError.extractFailed
         }
 
+        // Clean up zip
+        try? fm.removeItem(at: zipURL)
+
         // Find the .app inside extracted directory
         let contents = try fm.contentsOfDirectory(at: extractDir, includingPropertiesForKeys: nil)
         guard let newApp = contents.first(where: { $0.pathExtension == "app" }) else {
             throw UpdateError.noAppFound
         }
 
-        // Replace current .app bundle
+        log(" Extracted to \(newApp.path)")
+        return newApp
+    }
+
+    // MARK: - Launch installer script & quit
+
+    /// Spawn a shell script that waits for this process to exit, then replaces
+    /// the .app bundle and relaunches. This avoids replacing a running binary.
+    private func launchInstallerAndQuit(newAppURL: URL) throws {
         let currentApp = Bundle.main.bundleURL
-        // Sanity: only replace if current bundle is actually an .app
         guard currentApp.pathExtension == "app" else {
             throw UpdateError.notRunningAsApp
         }
 
-        let backupURL = currentApp.deletingLastPathComponent()
-            .appendingPathComponent("AIPointer-old.app")
-        try? fm.removeItem(at: backupURL)
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let script = """
+        # Wait for the current process to exit
+        while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done
+        # Replace the .app bundle
+        rm -rf "\(currentApp.path)"
+        mv "\(newAppURL.path)" "\(currentApp.path)"
+        # Clean up extract directory
+        rm -rf "\(newAppURL.deletingLastPathComponent().path)"
+        # Relaunch
+        open "\(currentApp.path)"
+        """
 
-        // Atomic swap: rename current → backup, move new → current
-        try fm.moveItem(at: currentApp, to: backupURL)
-        do {
-            try fm.moveItem(at: newApp, to: currentApp)
-        } catch {
-            // Rollback: restore backup
-            try? fm.moveItem(at: backupURL, to: currentApp)
-            throw UpdateError.replaceFailed(error.localizedDescription)
-        }
-
-        // Clean up
-        try? fm.removeItem(at: backupURL)
-        try? fm.removeItem(at: zipURL)
-        try? fm.removeItem(at: extractDir)
-
-        log(" Installed successfully")
-    }
-
-    // MARK: - Relaunch
-
-    private func relaunch() {
-        let appURL = Bundle.main.bundleURL
         let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        task.arguments = ["-n", appURL.path]
-        try? task.run()
+        task.executableURL = URL(fileURLWithPath: "/bin/sh")
+        task.arguments = ["-c", script]
+        try task.run()
 
-        // Give the new process a moment to start
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        log(" Installer script launched, quitting…")
+
+        // Quit the app so the script can replace it
+        DispatchQueue.main.async {
             NSApp.terminate(nil)
         }
     }
