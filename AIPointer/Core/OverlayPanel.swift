@@ -153,10 +153,9 @@ class OverlayPanel: NSPanel {
         CATransaction.commit()
     }
 
-    /// Animate collapse: let SwiftUI handle the visual shrink via PointerShape,
-    /// then snap the window frame to final size once the animation completes.
-    /// This avoids the NSPanel window boundary hard-clipping SwiftUI content
-    /// during the animation (which caused a "cutting" artifact).
+    /// Animate collapse: shrink the window **and** move it toward the current
+    /// mouse position simultaneously so there is no "snap" at the end.
+    /// SwiftUI handles the visual content shrink via PointerShape in parallel.
     private func animateCollapse() {
         collapseTimer?.invalidate()
         collapseTimer = nil
@@ -174,17 +173,23 @@ class OverlayPanel: NSPanel {
                 ? mouse.y - targetSize.height + p
                 : mouse.y - p
         )
+        let targetFrame = NSRect(origin: targetOrigin, size: targetSize)
 
-        // Keep window at current size while SwiftUI animates the visual shrink.
-        // After the animation duration, snap window to final collapsed size.
-        DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
+        // Animate the window frame (size + position) over the same duration
+        // as the SwiftUI easeOut animation so both layers stay in sync.
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = duration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            self.animator().setFrame(targetFrame, display: false)
+        }, completionHandler: { [weak self] in
             guard let self else { return }
+            // Ensure final frame is exact (animator may round).
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            self.setFrame(NSRect(origin: targetOrigin, size: targetSize), display: false)
+            self.setFrame(targetFrame, display: false)
             CATransaction.commit()
             self.isCollapsing = false
-        }
+        })
     }
 
     func updateForState(_ state: PointerState) {
