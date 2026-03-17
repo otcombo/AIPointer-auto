@@ -25,6 +25,9 @@ class PointerViewModel: ObservableObject {
     /// Selection context captured on Fn press (selected text / Finder files)
     @Published private(set) var pendingSelectionContext: SelectionContextCapture.CapturedContext?
 
+    /// Cursor-area screenshot captured automatically on Fn press for visual context
+    private var cursorScreenshot: NSImage?
+
     /// Mouse position and screen bounds captured at expansion time.
     var expansionMouseX: CGFloat = 0
     var expansionMouseY: CGFloat = 0
@@ -120,6 +123,7 @@ class PointerViewModel: ObservableObject {
             attachedImages = []
             pendingBehaviorContext = nil
             captureSelectionContext(frontApp: frontApp)
+            captureCursorScreenshot()
             onStateChanged?(state)
         case .suggestion:
             // Accept suggestion: transition to input with context pre-loaded
@@ -130,6 +134,7 @@ class PointerViewModel: ObservableObject {
             inputText = ""
             attachedImages = []
             captureSelectionContext(frontApp: frontApp)
+            captureCursorScreenshot()
             onStateChanged?(state)
         default:
             dismiss()
@@ -142,6 +147,15 @@ class PointerViewModel: ObservableObject {
             if !context.isEmpty {
                 self.pendingSelectionContext = context
             }
+        }
+    }
+
+    private func captureCursorScreenshot() {
+        cursorScreenshot = nil
+        Task {
+            let image = await CursorScreenshotService.capture()
+            guard case .input = self.state else { return }
+            self.cursorScreenshot = image
         }
     }
 
@@ -236,6 +250,13 @@ class PointerViewModel: ObservableObject {
 
         // Build images array with labels
         var images: [(NSImage, String)] = []
+
+        // Cursor-area context screenshot (always first, if available)
+        if let cursorImage = cursorScreenshot {
+            images.append((cursorImage, "[Cursor Context]"))
+            cursorScreenshot = nil
+        }
+
         for (index, region) in attachedImages.enumerated() {
             if let snapshot = region.snapshot {
                 images.append((snapshot, "[Screenshot \(index + 1)]"))
@@ -333,6 +354,7 @@ class PointerViewModel: ObservableObject {
         suggestionDismissTimer = nil
         pendingBehaviorContext = nil
         pendingSelectionContext = nil
+        cursorScreenshot = nil
         selectedSkill = nil
         showSkillCompletion = false
         filteredSkills = []

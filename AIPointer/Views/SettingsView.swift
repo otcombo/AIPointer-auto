@@ -19,6 +19,7 @@ struct SettingsView: View {
     @AppStorage("focusShowOffer") private var focusShowOffer = true
     @AppStorage("suggestionDisplaySeconds") private var suggestionDisplaySeconds = 10.0
     @AppStorage("debugMaterial") private var debugMaterial: Int = 13 // .hudWindow
+    @AppStorage("showCaptureArea") private var showCaptureArea = false
     @State private var debugCycling = false
 
     var body: some View {
@@ -178,6 +179,11 @@ struct SettingsView: View {
                     Text("underPageBackground (22)").tag(22)
                 }
                 Text("Live preview — click to switch material.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Toggle("Show capture area (150×50)", isOn: $showCaptureArea)
+                Text("Shows a red outline around the cursor screenshot region.")
                     .font(.caption)
                     .foregroundColor(.secondary)
 

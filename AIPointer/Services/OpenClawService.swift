@@ -135,6 +135,7 @@ class OpenClawService: NSObject, URLSessionDataDelegate {
                 let body: [String: Any] = [
                     "model": self.model,
                     "max_tokens": 8192,
+                    "system": "You are a helpful assistant. A small screenshot around the user's cursor may be attached for visual context. Use it only if relevant to the user's question; otherwise ignore it.",
                     "messages": apiMessages,
                     "stream": true
                 ]

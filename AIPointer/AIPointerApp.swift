@@ -32,6 +32,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var updateWindow: NSWindow?
     private var updateViewModel: UpdateViewModel?
 
+    // Debug: cursor capture area overlay
+    private var captureDebugWindow: NSWindow?
+
     // Screenshot support
     private var screenshotViewModel: ScreenshotViewModel?
     private var screenshotWindows: [ScreenshotOverlayWindow] = []
@@ -378,6 +381,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 // Panel is fixed (input/thinking/response) — show cursor on mouse move
                 self.cursorHider.restore()
             }
+            // Debug: move capture area overlay to follow mouse
+            if let debugWindow = self.captureDebugWindow {
+                let size = debugWindow.frame.size
+                debugWindow.setFrameOrigin(NSPoint(x: point.x - size.width / 2,
+                                                    y: point.y - size.height / 2))
+            }
         }
 
         eventTapManager.onFnShortPress = { [weak self] in
@@ -556,6 +565,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func settingsChanged() {
         applySettings()
         applyBehaviorSensingSettings()
+        applyCaptureDebugSetting()
     }
 
     // MARK: - Fn Long Press → Screenshot
@@ -845,6 +855,41 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let menu = statusItem?.menu,
            let toggleItem = menu.item(at: 0) {
             toggleItem.state = isEnabled ? .on : .off
+        }
+    }
+
+    private func applyCaptureDebugSetting() {
+        let show = UserDefaults.standard.bool(forKey: "showCaptureArea")
+        if show && captureDebugWindow == nil {
+            let w: CGFloat = 150; let h: CGFloat = 50
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: w, height: h),
+                styleMask: .borderless,
+                backing: .buffered,
+                defer: false
+            )
+            window.level = .screenSaver - 1
+            window.ignoresMouseEvents = true
+            window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            window.backgroundColor = .clear
+            window.isOpaque = false
+            window.hasShadow = false
+
+            let box = NSView(frame: NSRect(x: 0, y: 0, width: w, height: h))
+            box.wantsLayer = true
+            box.layer?.borderColor = NSColor.systemRed.withAlphaComponent(0.6).cgColor
+            box.layer?.borderWidth = 2
+            box.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.05).cgColor
+            window.contentView = box
+
+            window.orderFrontRegardless()
+            captureDebugWindow = window
+
+            let mouse = NSEvent.mouseLocation
+            window.setFrameOrigin(NSPoint(x: mouse.x - w / 2, y: mouse.y - h / 2))
+        } else if !show, let window = captureDebugWindow {
+            window.orderOut(nil)
+            captureDebugWindow = nil
         }
     }
 
