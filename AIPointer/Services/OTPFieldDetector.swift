@@ -49,6 +49,8 @@ struct OTPFieldDetector {
         }
 
         // --- Signal scoring: need 2+ independent signals ---
+        // Signals must be truly independent facts. "numeric input" and "inputmode=numeric"
+        // are the same fact expressed differently, so they count as one signal together.
 
         var score = 0
 
@@ -69,14 +71,11 @@ struct OTPFieldDetector {
             score += 1
         }
 
-        // Signal: numeric input with OTP-length constraint (4-8 digits)
-        if isNumericConstrained(attrs: attrs) {
-            score += 1
-        }
-
-        // Signal: inputmode="numeric" (without requiring maxlength — still meaningful)
-        if let inputMode = attrs.inputMode?.lowercased(),
-           inputMode == "numeric" || inputMode == "tel" {
+        // Signal: short numeric input field (maxlength 4-8 + numeric type/inputmode).
+        // This is ONE signal — "numeric" and "maxlength" together describe the same
+        // physical characteristic (a short digit-only box). Date fields (dd/mm/yyyy),
+        // phone area codes, and zip codes also match, so this alone is weak.
+        if isNumericShortField(attrs: attrs) {
             score += 1
         }
 
@@ -172,9 +171,13 @@ struct OTPFieldDetector {
         return false
     }
 
-    // MARK: - Numeric constraint check
+    // MARK: - Numeric short field check
 
-    private static func isNumericConstrained(attrs: AXAttributes) -> Bool {
+    /// A short numeric-only input (maxlength 4-8 + numeric hint).
+    /// Both conditions must hold — this is a single composite signal because
+    /// "numeric" and "short" together just mean "small digit box", which is
+    /// common in dates, phone prefixes, zip codes, etc.
+    private static func isNumericShortField(attrs: AXAttributes) -> Bool {
         let maxLen = attrs.maxLength ?? 0
         guard maxLen >= 4 && maxLen <= 8 else { return false }
 
@@ -322,23 +325,26 @@ struct OTPFieldDetector {
         return false
     }
 
-    /// Button text patterns that indicate a verification form.
+    /// Button text patterns that indicate a verification code form.
+    /// Must be OTP-specific — avoid generic words like "verify" or "validate"
+    /// which appear on many non-OTP forms (immigration, identity, payment).
     private static let buttonPatterns: [String] = [
-        // English
-        "verify", "confirm code", "submit code", "validate",
+        // English — code-specific
+        "verify code", "confirm code", "submit code",
         "resend code", "send code", "send again",
         "didn't receive", "didn\u{2019}t receive",
+        "resend otp", "send otp",
 
-        // Chinese
-        "验证", "确认验证码", "发送验证码", "重新发送",
-        "获取验证码", "重新获取",
-        "驗證", "確認驗證碼",
+        // Chinese — code-specific
+        "确认验证码", "发送验证码", "重新发送验证码",
+        "获取验证码", "重新获取验证码", "发送动态码",
+        "確認驗證碼", "發送驗證碼",
 
         // Japanese
-        "確認する", "コードを送信", "再送信",
+        "コードを送信", "コード再送信",
 
         // Korean
-        "인증", "코드 전송", "재전송",
+        "코드 전송", "코드 재전송",
     ]
 }
 
