@@ -378,16 +378,16 @@ class HimalayaSetupService: ObservableObject {
 
                     let cmdShort = command.count > 80 ? String(command.prefix(80)) + "..." : command
                     if exitCode != 0 || !stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        log( "shell exit=\(exitCode) cmd=\(cmdShort)")
+                        self.log( "shell exit=\(exitCode) cmd=\(cmdShort)")
                         if !stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            log( "shell stderr: \(stderr.trimmingCharacters(in: .whitespacesAndNewlines))")
+                            self.log( "shell stderr: \(stderr.trimmingCharacters(in: .whitespacesAndNewlines))")
                         }
                     }
 
                     let result = stdout.isEmpty ? stderr : stdout
                     continuation.resume(returning: result.isEmpty ? nil : result)
                 } catch {
-                    log( "shell exception: \(error) cmd=\(command)")
+                    self.log( "shell exception: \(error) cmd=\(command)")
                     continuation.resume(returning: nil)
                 }
             }

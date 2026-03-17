@@ -28,6 +28,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var isEnabled = true
     private var isFollowingMouse = true
     private var onboardingWindow: NSWindow?
+    private var permissionWindow: NSWindow?
 
     // Screenshot support
     private var screenshotViewModel: ScreenshotViewModel?
@@ -206,6 +207,54 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         finishOnboardingFlow()
     }
 
+    // MARK: - Permission Repair Window
+
+    private func showPermissionWindow() {
+        if let existing = permissionWindow, existing.isVisible { return }
+
+        NSApp.setActivationPolicy(.regular)
+
+        let repairView = PermissionRepairView {
+            self.dismissPermissionWindow()
+        }
+
+        let hostingController = NSHostingController(rootView: repairView)
+        let window = NSWindow(contentViewController: hostingController)
+        window.styleMask = [.titled, .closable, .fullSizeContentView]
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = false
+        window.level = .normal
+        window.setContentSize(NSSize(width: 600, height: 500))
+        window.center()
+        window.isReleasedWhenClosed = false
+
+        window.standardWindowButton(.closeButton)?.isHidden = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
+        window.isMovableByWindowBackground = true
+
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        permissionWindow = window
+    }
+
+    private func dismissPermissionWindow() {
+        dbg("[Permissions] all required granted, dismissing repair window")
+        guard let window = permissionWindow else {
+            // No window — just retry startup
+            startPointerSystem()
+            return
+        }
+        permissionWindow = nil
+        window.close()
+        NSApp.setActivationPolicy(.accessory)
+        startPointerSystem()
+    }
+
     private func finishOnboardingFlow() {
         NSApp.setActivationPolicy(.accessory)
         setupMenuBar()
@@ -229,58 +278,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let preflightOK = EventTapManager.checkPermission()
         let axOK = AXIsProcessTrusted()
 
-        // 权限检查：无论首次还是后续启动，都在此统一拦截
-        guard preflightOK else {
-            let alert = NSAlert()
-            alert.messageText = "Input Monitoring Required"
-            alert.informativeText = "AI Pointer needs Input Monitoring permission to track mouse movement and keyboard events.\n\nPlease grant access in System Settings → Privacy & Security → Input Monitoring, then relaunch the app."
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "Open System Settings")
-            alert.addButton(withTitle: "Relaunch")
-            alert.addButton(withTitle: "Quit")
-
-            let response = alert.runModal()
-            if response == .alertFirstButtonReturn {
-                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
-                    NSWorkspace.shared.open(url)
-                }
-                // Keep app running so the user can grant permission and relaunch
-                return
-            } else if response == .alertSecondButtonReturn {
-                let task = Process()
-                task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-                task.arguments = ["-n", Bundle.main.bundlePath]
-                try? task.run()
-            }
-            NSApp.terminate(nil)
-            return
-        }
-
-        guard axOK else {
-            let alert = NSAlert()
-            alert.messageText = "Accessibility Required"
-            alert.informativeText = "AI Pointer needs Accessibility permission for smart features (OTP detection, behavior sensing).\n\nPlease grant access in System Settings → Privacy & Security → Accessibility, then relaunch the app."
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "Open System Settings")
-            alert.addButton(withTitle: "Relaunch")
-            alert.addButton(withTitle: "Quit")
-
-            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
-            AXIsProcessTrustedWithOptions(options)
-
-            let response = alert.runModal()
-            if response == .alertFirstButtonReturn {
-                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                    NSWorkspace.shared.open(url)
-                }
-                return
-            } else if response == .alertSecondButtonReturn {
-                let task = Process()
-                task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-                task.arguments = ["-n", Bundle.main.bundlePath]
-                try? task.run()
-            }
-            NSApp.terminate(nil)
+        // 权限缺失：显示独立权限修复窗口，通过后自动继续
+        guard preflightOK && axOK else {
+            dbg("[Permissions] missing — input=\(preflightOK) ax=\(axOK), showing repair window")
+            showPermissionWindow()
             return
         }
 
@@ -412,38 +413,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         applyBehaviorSensingSettings()
 
         guard eventTapManager.start() else {
-            // tapCreate failed even though preflight said OK — known macOS TCC inconsistency
-            // after app updates or permission toggles. Roll back visible side-effects.
+            // tapCreate failed even though preflight said OK — known macOS TCC inconsistency.
+            // Roll back and show permission repair window.
             cursorHider.restore()
             overlayPanel.orderOut(nil)
-
-            let alert = NSAlert()
-            alert.messageText = "Input Monitoring Needs Refresh"
-            alert.informativeText = """
-            macOS reports the permission is granted, but the system blocked the actual event tap. \
-            This can happen after an app update or toggling permissions.
-
-            To fix: Open System Settings → Privacy & Security → Input Monitoring, \
-            turn OFF AI Pointer, then turn it back ON, and relaunch the app.
-            """
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "Open System Settings")
-            alert.addButton(withTitle: "Relaunch")
-            alert.addButton(withTitle: "Quit")
-
-            let response = alert.runModal()
-            if response == .alertFirstButtonReturn {
-                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
-                    NSWorkspace.shared.open(url)
-                }
-                return
-            } else if response == .alertSecondButtonReturn {
-                let task = Process()
-                task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-                task.arguments = ["-n", Bundle.main.bundlePath]
-                try? task.run()
-            }
-            NSApp.terminate(nil)
+            dbg("[Permissions] event tap creation failed despite preflight OK, showing repair window")
+            showPermissionWindow()
             return
         }
 

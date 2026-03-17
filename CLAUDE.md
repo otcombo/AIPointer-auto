@@ -110,6 +110,16 @@ Use `Defaults.L.key` for user-facing strings. Inline localization via system lan
 
 App self-updates via GitHub Releases (`UpdateService`). On each launch (at most once per day), it checks `/repos/otcombo/AIPointer-auto/releases/latest` and prompts the user if a newer version exists. Users can also trigger a check from the menu bar ("Check for Updates…").
 
+### Code signing
+
+**Always sign with Developer ID Application certificate.** Never use ad-hoc signing — it causes TCC (permissions) to invalidate on every binary update because macOS identifies ad-hoc apps by CDHash, which changes with each build. Developer ID uses TeamID + BundleID, so permissions persist across updates.
+
+```bash
+# Sign after copying binary into .app bundle (step 3 below)
+find dist/AIPointer.app -exec xattr -c {} \; 2>/dev/null
+codesign --force --deep --sign "Developer ID Application: Han Li (GV33A558Z4)" --options runtime dist/AIPointer.app
+```
+
 ### Publishing a new version
 
 1. Bump `CFBundleShortVersionString` in `dist/AIPointer.app/Contents/Info.plist`
@@ -121,11 +131,16 @@ App self-updates via GitHub Releases (`UpdateService`). On each launch (at most 
    ```bash
    cp .build/release/AIPointer dist/AIPointer.app/Contents/MacOS/AIPointer
    ```
-4. Package as zip (preserves code signature and resource forks):
+4. Sign with Developer ID (required — do not skip):
+   ```bash
+   find dist/AIPointer.app -exec xattr -c {} \; 2>/dev/null
+   codesign --force --deep --sign "Developer ID Application: Han Li (GV33A558Z4)" --options runtime dist/AIPointer.app
+   ```
+5. Package as zip (preserves code signature and resource forks):
    ```bash
    cd dist && ditto -ck --keepParent AIPointer.app AIPointer.zip
    ```
-5. Create GitHub Release with semver tag (`v` prefix required):
+6. Create GitHub Release with semver tag (`v` prefix required):
    ```bash
    gh release create v1.x.x dist/AIPointer.zip --title "v1.x.x" --notes "Changelog here"
    ```
