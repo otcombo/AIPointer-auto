@@ -502,7 +502,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
 
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let version = Self.resolveAppVersion()
         let vm = UpdateViewModel(currentVersion: version)
         vm.onDismiss = { [weak self] in self?.dismissUpdateWindow() }
         vm.onUpdate = { [weak self] in self?.updateService.downloadAndInstall() }
@@ -521,6 +521,26 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
 
         updateWindow = window
+    }
+
+    /// Resolve app version from Bundle.main or enclosing .app bundle.
+    private static func resolveAppVersion() -> String {
+        // 1. Try main bundle (works when running from .app)
+        if let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+            return v
+        }
+        // 2. Walk up from executable to find enclosing .app
+        let execURL = Bundle.main.executableURL ?? Bundle.main.bundleURL
+        var url = execURL
+        for _ in 0..<5 {
+            url = url.deletingLastPathComponent()
+            if url.pathExtension == "app",
+               let bundle = Bundle(url: url),
+               let v = bundle.infoDictionary?["CFBundleShortVersionString"] as? String {
+                return v
+            }
+        }
+        return "?"
     }
 
     private func dismissUpdateWindow() {

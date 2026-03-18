@@ -100,7 +100,7 @@ final class AccessibilityMonitor {
             var focusedRef: CFTypeRef?
             if AXUIElementCopyAttributeValue(element, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
                let focused = focusedRef {
-                let focusedElement = focused as! AXUIElement
+                let focusedElement = monitor.drillDownFocusedElement(focused as! AXUIElement)
                 DispatchQueue.main.async {
                     monitor.onFocusedElementChanged?(focusedElement)
                 }
@@ -123,7 +123,7 @@ final class AccessibilityMonitor {
         var focusedRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
            let focused = focusedRef {
-            let focusedElement = focused as! AXUIElement
+            let focusedElement = drillDownFocusedElement(focused as! AXUIElement)
             lastFocusedFingerprint = fingerprint(for: focusedElement)
             onFocusedElementChanged?(focusedElement)
         }
@@ -160,13 +160,73 @@ final class AccessibilityMonitor {
         guard AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
               let focused = focusedRef else { return }
 
-        let focusedElement = focused as! AXUIElement
+        let focusedElement = drillDownFocusedElement(focused as! AXUIElement)
         let fp = fingerprint(for: focusedElement)
 
         guard fp != lastFocusedFingerprint else { return }
         lastFocusedFingerprint = fp
 
         onFocusedElementChanged?(focusedElement)
+    }
+
+    // MARK: - Drill down through AXWebArea
+
+    /// When the browser reports AXWebArea as the focused element, try to find
+    /// the actual focused child (e.g., AXTextField) inside the web content.
+    private func drillDownFocusedElement(_ element: AXUIElement) -> AXUIElement {
+        let attrs = AXAttributes(element: element)
+        let role = attrs.string(kAXRoleAttribute) ?? ""
+
+        // Only drill down for web area or group containers
+        guard role == "AXWebArea" || role == "AXScrollArea" || role == "AXGroup" else {
+            return element
+        }
+
+        // Try kAXFocusedUIElementAttribute on the web area itself
+        var focusedRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
+           let focused = focusedRef {
+            let child = focused as! AXUIElement
+            let childRole = AXAttributes(element: child).string(kAXRoleAttribute) ?? ""
+            // If we got a deeper element (not still AXWebArea), use it
+            if childRole != role || childRole != "AXWebArea" {
+                debugLogElement("DrillDown: found \(childRole) inside \(role)", element: child)
+                return child
+            }
+        }
+
+        debugLogElement("DrillDown: stuck at \(role), no focused child found", element: element)
+        return element
+    }
+
+    /// Log an AXUIElement's key attributes for diagnostic purposes.
+    private func debugLogElement(_ reason: String, element: AXUIElement) {
+        let attrs = AXAttributes(element: element)
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let info = """
+        [\(timestamp)] AccessibilityMonitor: \(reason)
+          role=\(attrs.string(kAXRoleAttribute) ?? "nil") subrole=\(attrs.subrole ?? "nil")
+          domId=\(attrs.domId ?? "nil") domName=\(attrs.domName ?? "nil") domClass=\(attrs.domClass ?? "nil")
+          identifier=\(attrs.identifier ?? "nil")
+          autocomplete=\(attrs.autocomplete ?? "nil")
+          inputMode=\(attrs.inputMode ?? "nil") inputType=\(attrs.inputType ?? "nil")
+          maxLength=\(attrs.maxLength.map(String.init) ?? "nil")
+          placeholder=\(attrs.placeholderValue ?? "nil")
+          label=\(attrs.label ?? "nil") description=\(attrs.axDescription ?? "nil")
+          title=\(attrs.title ?? "nil") value=\(attrs.value?.prefix(30).description ?? "nil")
+        """
+        let path = NSHomeDirectory() + "/aipointer_otp_debug.log"
+        if let data = (info + "\n").data(using: .utf8) {
+            if FileManager.default.fileExists(atPath: path) {
+                if let handle = FileHandle(forWritingAtPath: path) {
+                    handle.seekToEndOfFile()
+                    handle.write(data)
+                    handle.closeFile()
+                }
+            } else {
+                FileManager.default.createFile(atPath: path, contents: data)
+            }
+        }
     }
 
     /// Build a lightweight fingerprint for an AXUIElement to detect changes.

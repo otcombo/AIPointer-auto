@@ -233,7 +233,21 @@ final class UpdateService {
     }
 
     private var currentAppVersion: String? {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+        if let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+            return v
+        }
+        // Walk up from executable to find enclosing .app bundle
+        let execURL = Bundle.main.executableURL ?? Bundle.main.bundleURL
+        var url = execURL
+        for _ in 0..<5 {
+            url = url.deletingLastPathComponent()
+            if url.pathExtension == "app",
+               let bundle = Bundle(url: url),
+               let v = bundle.infoDictionary?["CFBundleShortVersionString"] as? String {
+                return v
+            }
+        }
+        return nil
     }
 
     enum UpdateError: LocalizedError {

@@ -1,16 +1,35 @@
 import SwiftUI
+import AppKit
 
 /// Standalone update check window showing app icon, current version, and update status.
 struct UpdateView: View {
     @ObservedObject var viewModel: UpdateViewModel
     @State private var isPresented = false
 
+    /// Load app icon from SPM resource bundle, falling back to NSApp icon.
+    private var appIcon: NSImage? {
+        let bundleName = "AIPointer_AIPointer"
+        // Try .app bundle Resources first
+        if let resourceURL = Bundle.main.resourceURL,
+           let bundle = Bundle(url: resourceURL.appendingPathComponent(bundleName + ".bundle")),
+           let url = bundle.url(forResource: "AppIcon", withExtension: "icns"),
+           let img = NSImage(contentsOf: url) {
+            return img
+        }
+        // SPM development: Bundle.module
+        if let url = Bundle.module.url(forResource: "AppIcon", withExtension: "icns"),
+           let img = NSImage(contentsOf: url) {
+            return img
+        }
+        return NSApp.applicationIconImage
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             Spacer().frame(height: 28)
 
             // App icon
-            if let icon = NSApp.applicationIconImage {
+            if let icon = appIcon {
                 Image(nsImage: icon)
                     .resizable()
                     .frame(width: 80, height: 80)
