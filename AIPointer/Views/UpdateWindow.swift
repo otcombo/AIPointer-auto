@@ -6,20 +6,19 @@ struct UpdateView: View {
     @ObservedObject var viewModel: UpdateViewModel
     @State private var isPresented = false
 
-    /// Load app icon from SPM resource bundle, falling back to NSApp icon.
+    /// Load app icon from enclosing .app bundle, falling back to NSApp icon.
     private var appIcon: NSImage? {
-        let bundleName = "AIPointer_AIPointer"
-        // Try .app bundle Resources first
-        if let resourceURL = Bundle.main.resourceURL,
-           let bundle = Bundle(url: resourceURL.appendingPathComponent(bundleName + ".bundle")),
-           let url = bundle.url(forResource: "AppIcon", withExtension: "icns"),
-           let img = NSImage(contentsOf: url) {
-            return img
-        }
-        // SPM development: Bundle.module
-        if let url = Bundle.module.url(forResource: "AppIcon", withExtension: "icns"),
-           let img = NSImage(contentsOf: url) {
-            return img
+        // Walk up from executable to find enclosing .app bundle's appicon.icns
+        let execURL = Bundle.main.executableURL ?? Bundle.main.bundleURL
+        var url = execURL
+        for _ in 0..<5 {
+            url = url.deletingLastPathComponent()
+            if url.pathExtension == "app" {
+                let iconURL = url.appendingPathComponent("Contents/Resources/appicon.icns")
+                if let img = NSImage(contentsOf: iconURL) {
+                    return img
+                }
+            }
         }
         return NSApp.applicationIconImage
     }
