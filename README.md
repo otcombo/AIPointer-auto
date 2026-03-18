@@ -1,6 +1,6 @@
 # AIPointer
 
-一个 macOS 桌面 AI 助手，以自定义指针的形式常驻屏幕。按 Fn 键即可展开输入框与 AI 对话，支持截图分析、选中文字/文件上下文捕获、验证码自动填充和行为感知主动建议。
+一个 macOS 桌面 AI 助手，以自定义指针的形式常驻屏幕。按 Fn 键即可展开输入框与 AI 对话，支持截图分析、选中文字/文件上下文捕获、验证码自动填充。
 
 ## 功能概览
 
@@ -11,33 +11,17 @@
 - **选中文字/文件捕获** — 按 Fn 时自动抓取当前 app 选中的文字或 Finder 选中的文件路径，附加为上下文
 
 ### 验证码自动填充
-- 检测到网页中的 OTP 输入框时，指针变为绿色监控状态
-- 通过 IMAP 获取验证码后自动填入
-
-### 行为感知建议
-- 被动监控用户操作（点击、复制、应用切换等）
-- 当检测到可能需要帮助的行为模式时，主动弹出 AI 建议
-- 用户按 Fn 接受建议后进入带上下文的对话
-
-### Skill 补全
-- 输入 `/` 触发 skill 列表自动补全，选择后注入 skill 上下文
+- 自动检测浏览器中的 OTP 输入框（支持 Chrome、Safari、Firefox 等）
+- 检测到时指针变为绿色监控状态
+- 通过 IMAP 邮件或系统通知获取验证码后自动填入
+- 检测策略：字段属性（autocomplete、id/name/class）→ placeholder/label 文字 → 多信号评分
+- 已知限制：自定义 div 实现的 OTP 输入框（如 Substack）无法通过 AX API 检测，详见 [docs/otp-detection-limitations.md](docs/otp-detection-limitations.md)
 
 ## 系统要求
 
-- **macOS 15 (Sequoia)** 或更高版本
+- **macOS 26** 或更高版本
 - **Xcode 26 beta** 或更高版本（包含 Swift 6.2 工具链）
-- 无第三方 SPM 依赖，仅使用系统框架
-
-### 构建依赖
-
-| 依赖 | 最低版本 | 安装方式 |
-|------|----------|----------|
-| **Xcode** | 26 beta+ | [developer.apple.com/xcode](https://developer.apple.com/xcode/) |
-| **Swift 工具链** | 6.2+ | 随 Xcode 26 自带，或通过 [swift.org/install](https://swift.org/install) 单独安装 |
-| **macOS SDK** | 26+ | 随 Xcode 26 自带 |
-| **Command Line Tools** | 与 Xcode 版本匹配 | `xcode-select --install` |
-
-> Package.swift 中 `platforms: [.macOS(.v26)]`，需要 macOS 26 SDK 才能编译。如果使用独立 Swift 工具链，确保 `xcrun --show-sdk-path` 指向正确的 SDK。
+- 零第三方依赖，仅使用系统框架
 
 ### 使用的系统框架
 
@@ -57,47 +41,11 @@
 | **辅助功能** | 读取前台应用的选中文字、检测 OTP 输入框 | 隐私与安全性 → 辅助功能 |
 | **屏幕录制** | 截图功能（Fn 长按框选区域） | 隐私与安全性 → 屏幕录制 |
 
-> 如果未授予输入监控权限，应用无法启动核心功能。
-
 ## 后端配置
 
-AIPointer 需要连接 OpenClaw 后端服务。
+AIPointer 直接调用 Anthropic Messages API（`/v1/messages` SSE），无需中间网关。
 
-### 1. 配置文件
-
-创建 `~/.openclaw/openclaw.json`：
-
-```json
-{
-  "gateway": {
-    "auth": {
-      "token": "your_gateway_token"
-    }
-  },
-  "models": {
-    "providers": {
-      "your_provider": {
-        "baseUrl": "https://api.anthropic.com",
-        "apiKey": "sk-ant-...",
-        "models": [
-          {
-            "id": "claude-sonnet-4-5-20250514",
-            "input": ["text", "image"]
-          }
-        ]
-      }
-    }
-  }
-}
-```
-
-### 2. 应用内设置
-
-启动后点击菜单栏图标 → Settings：
-
-- **Server URL** — OpenClaw 后端地址（默认 `http://localhost:18789`）
-- **Agent ID** — 路由标识（默认 `main`）
-- **Response Language** — 回复语言（zh-CN / en）
+启动后通过首次引导或菜单栏 → Settings 配置 **Anthropic API Key**。密钥存储在 UserDefaults 中。
 
 ## 构建与运行
 
@@ -109,8 +57,11 @@ cd AIPointer-auto
 # 构建
 swift build
 
-# 运行
+# 运行（需要输入监控权限）
 swift run AIPointer
+
+# Release 构建
+swift build -c release
 ```
 
 应用启动后以菜单栏图标形式运行（不会出现在 Dock 中）。
@@ -138,14 +89,6 @@ swift run AIPointer
 2. **短按 Fn** — 输入框上方自动显示捕获的选中内容
 3. 输入问题后发送，选中内容作为上下文一并发送
 
-### 行为感知
-
-1. 在设置中确认"Enable behavior sensing"已开启
-2. 正常使用电脑，系统会被动分析操作模式
-3. 当检测到可辅助的场景时，指针附近弹出建议气泡
-4. 按 **Fn** 接受建议并进入带上下文的对话
-5. 气泡会在 10 秒后自动消失（可在设置中调整）
-
 ## 状态说明
 
 | 状态 | 外观 | 说明 |
@@ -153,7 +96,6 @@ swift run AIPointer
 | Idle | 泪滴形小指针 | 默认状态，跟随鼠标 |
 | Monitoring | 绿色圆点 | 检测到 OTP 输入框 |
 | Code Ready | 显示验证码数字 | 验证码就绪，即将自动填入 |
-| Suggestion | 脉冲圆点 | AI 行为建议待确认 |
 | Input | 展开的输入框 | 用户输入中 |
 | Thinking | 加载动画 | 等待 AI 回复 |
 | Responding | 流式文字 | AI 正在回复 |
@@ -165,19 +107,18 @@ swift run AIPointer
 AIPointer/
 ├── AIPointerApp.swift              # 入口、AppDelegate、权限检查
 ├── Core/
-│   ├── EventTapManager.swift       # CGEvent 事件监听（鼠标、键盘）
+│   ├── EventTapManager.swift       # CGEvent 事件监听（鼠标、键盘、Fn）
 │   ├── OverlayPanel.swift          # NSPanel 覆盖层窗口
 │   ├── CursorHider.swift           # 系统光标隐藏/恢复
 │   └── ScreenshotOverlayWindow.swift
 ├── Services/
-│   ├── OpenClawService.swift       # OpenClaw API 客户端（SSE 流式）
+│   ├── OpenClawService.swift       # Anthropic Messages API 客户端（SSE 流式）
 │   ├── SelectionContextCapture.swift # Fn 按下时捕获选中文字/文件
-│   ├── VerificationService.swift   # OTP 检测与自动填充
-│   ├── BehaviorSensingService.swift # 行为感知分析
-│   ├── BehaviorMonitor.swift       # 用户操作信号采集
-│   ├── BehaviorScorer.swift        # 行为评分算法
-│   ├── FocusDetectionService.swift # 长期专注模式检测
-│   └── AccessibilityMonitor.swift  # 辅助功能事件监听
+│   ├── VerificationService.swift   # OTP 检测与自动填充编排
+│   ├── OTPFieldDetector.swift      # OTP 字段识别（多信号评分）
+│   ├── AccessibilityMonitor.swift  # 浏览器焦点元素监听
+│   ├── CodeSourceMonitor.swift     # 验证码来源（IMAP 邮件 + 通知）
+│   └── UpdateService.swift         # GitHub Releases 自动更新
 ├── ViewModels/
 │   ├── PointerViewModel.swift      # 核心状态管理
 │   └── ScreenshotViewModel.swift
@@ -189,9 +130,8 @@ AIPointer/
 │   └── ...                         # 各状态指示器组件
 ├── State/
 │   └── PointerState.swift          # 状态枚举定义
-└── Models/
-    ├── ChatMessage.swift
-    └── SelectedRegion.swift
+└── docs/
+    └── otp-detection-limitations.md # OTP 检测已知限制
 ```
 
 ## License
